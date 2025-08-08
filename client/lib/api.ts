@@ -18,12 +18,14 @@ export async function apiFetch<TResponse, TBody extends object = Record<string, 
   options: RequestOptions<TBody> = {}
 ): Promise<TResponse> {
   const { method = 'GET', body, headers = {}, signal } = options;
+
+  const finalHeaders = body
+    ? { 'Content-Type': 'application/json', ...headers }
+    : { ...headers };
+
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
+    headers: finalHeaders,
     body: body ? JSON.stringify(body) : undefined,
     credentials: 'include',
     signal,

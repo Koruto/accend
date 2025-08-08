@@ -2,10 +2,42 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import { randomUUID } from 'node:crypto';
 import { authRoutes } from './routes/auth';
 
+const isProd = process.env.NODE_ENV === 'production';
+
+function createLoggerOptions() {
+  const redact = {
+    paths: ['req.headers.authorization', 'req.headers.cookie'] as string[],
+    remove: true,
+  };
+
+  if (isProd) {
+    return {
+      level: process.env.LOG_LEVEL || 'info',
+      redact,
+    };
+  }
+
+  return {
+    level: process.env.LOG_LEVEL || 'debug',
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'SYS:standard',
+        singleLine: false,
+        ignore: 'pid,hostname',
+        messageFormat: '{msg}',
+      },
+    },
+    redact,
+  };
+}
+
 async function bootstrap() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: createLoggerOptions(), genReqId: () => randomUUID() });
 
   const port = Number(process.env.PORT ?? 4000);
   const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:3000';
@@ -23,6 +55,39 @@ async function bootstrap() {
       secure: cookieSecure,
       path: '/',
     },
+  });
+
+  const requestStart = new WeakMap<object, number>();
+  app.addHook('onRequest', (req, _reply, done) => {
+    requestStart.set(req, Date.now());
+    done();
+  });
+  app.addHook('onResponse', (req, reply, done) => {
+    const start = requestStart.get(req);
+    const responseTimeMs = typeof start === 'number' ? Date.now() - start : undefined;
+    const status = reply.statusCode;
+    const msg = `${req.method} ${req.url} -> ${status}${typeof responseTimeMs === 'number' ? ` (${responseTimeMs}ms)` : ''}`;
+    const fields = { requestId: req.id, method: req.method, url: req.url, statusCode: status, responseTimeMs };
+
+    if (status >= 500) {
+      req.log.error(fields, msg);
+    } else if (status >= 400) {
+      req.log.warn(fields, msg);
+    } else {
+      req.log.info(fields, msg);
+    }
+    done();
+  });
+
+  app.setErrorHandler((err, req, reply) => {
+    const status = (err as any).statusCode ?? 500;
+    const msg = `${req.method} ${req.url} -> ${status} ${err.message}`;
+    const fields = { requestId: req.id, code: (err as any).code, name: err.name };
+
+    if (status >= 500) req.log.error(fields, msg);
+    else req.log.warn(fields, msg);
+
+    reply.status(status).send(err);
   });
 
   app.get('/health', async () => ({ status: 'ok' }));
