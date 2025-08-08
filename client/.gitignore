@@ -43,3 +43,7 @@ next-env.d.ts
 # docs
 docs/
 .cursorrules
+
+# local prototype data
+/data/*.local.json
+/public/data/*.local.json
