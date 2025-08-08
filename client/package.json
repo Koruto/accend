@@ -1,5 +1,5 @@
 {
-  "name": "accend",
+  "name": "accend-client",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -21,4 +21,4 @@
     "@tailwindcss/postcss": "^4",
     "tailwindcss": "^4"
   }
-}
+} 
