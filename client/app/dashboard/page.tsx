@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { AppSidebar } from '@/components/app-sidebar';
+import { RequestAccessDialog } from '@/components/requester/request-access-dialog';
 
 interface ResourceEntry {
   id: string;
@@ -123,98 +126,103 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <div className="flex items-center gap-3">
-          {user ? (
-            <span className="text-sm text-muted-foreground">{user.name}</span>
-          ) : null}
-          <Button variant="outline" onClick={handleLogout}>Sign out</Button>
-        </div>
-      </div>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <main className="min-h-screen flex flex-col gap-6 p-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-semibold">Dashboard</h1>
+            <div className="flex items-center gap-3">
+              {user ? (
+                <span className="text-sm text-muted-foreground">{user.name}</span>
+              ) : null}
+              <Button variant="outline" onClick={handleLogout}>Sign out</Button>
+            </div>
+          </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Active Accesses</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-semibold">{metrics.approvedActive}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Pending Requests</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-semibold">{metrics.pending}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Expiring in 7 days</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-semibold">{metrics.expiring7d}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Active Deployment Locks</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-semibold">{metrics.activeLocks}</p>
-          </CardContent>
-        </Card>
-      </section>
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Active Accesses</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">{metrics.approvedActive}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Pending Requests</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">{metrics.pending}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Expiring in 7 days</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">{metrics.expiring7d}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Active Deployment Locks</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">{metrics.activeLocks}</p>
+              </CardContent>
+            </Card>
+          </section>
 
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold">My Requests</h2>
-          <Button>Request Access</Button>
-        </div>
-        <div className="rounded-xl border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40">
-                <TableHead>Resource</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Requested On</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Expires At</TableHead>
-                <TableHead>Approver</TableHead>
-                <TableHead>Notes</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {requests.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                    No requests yet. Create your first access request.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                requests.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="whitespace-nowrap">{r.resourceName}</TableCell>
-                    <TableCell className="whitespace-nowrap">{r.type}</TableCell>
-                    <TableCell>{renderStatusBadge(r.status)}</TableCell>
-                    <TableCell className="whitespace-nowrap">{new Date(r.requestedAt).toLocaleString()}</TableCell>
-                    <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
-                    <TableCell className="whitespace-nowrap">{r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'}</TableCell>
-                    <TableCell className="whitespace-nowrap">{r.approver ?? '—'}</TableCell>
-                    <TableCell className="max-w-[320px] truncate" title={r.decisionNote || r.justification}>
-                      {r.decisionNote || r.justification}
-                    </TableCell>
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold">My Requests</h2>
+              <RequestAccessDialog />
+            </div>
+            <div className="rounded-xl border">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead>Resource</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Requested On</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Expires At</TableHead>
+                    <TableHead>Approver</TableHead>
+                    <TableHead>Notes</TableHead>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
-    </main>
+                </TableHeader>
+                <TableBody>
+                  {requests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                        No requests yet. Create your first access request.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    requests.map((r) => (
+                      <TableRow key={r.id}>
+                        <TableCell className="whitespace-nowrap">{r.resourceName}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.type}</TableCell>
+                        <TableCell>{renderStatusBadge(r.status)}</TableCell>
+                        <TableCell className="whitespace-nowrap">{new Date(r.requestedAt).toLocaleString()}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.approver ?? '—'}</TableCell>
+                        <TableCell className="max-w-[320px] truncate" title={r.decisionNote || r.justification}>
+                          {r.decisionNote || r.justification}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 } 
