@@ -2,6 +2,7 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import { authRoutes } from './routes/auth';
 
 async function bootstrap() {
   const app = Fastify({ logger: true });
@@ -24,10 +25,13 @@ async function bootstrap() {
     },
   });
 
-  app.get('/', async () => ({ status: 'ok' }));
+  app.get('/health', async () => ({ status: 'ok' }));
+
+  await app.register(authRoutes);
 
   try {
     await app.listen({ port, host: '0.0.0.0' });
+    app.log.info(`API listening on http://localhost:${port}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
