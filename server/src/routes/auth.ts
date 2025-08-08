@@ -22,8 +22,9 @@ export async function authRoutes(app: FastifyInstance) {
         maxAge: 60 * 60 * 24 * 7,
       });
       return { user };
-    } catch (err: any) {
-      if (err && err.message === 'EMAIL_EXISTS') {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (message === 'EMAIL_EXISTS') {
         return reply.code(409).send({ error: 'EMAIL_EXISTS' });
       }
       request.log.error({ err }, 'signup failed');
@@ -61,7 +62,6 @@ export async function authRoutes(app: FastifyInstance) {
     if (!token) return { user: null };
     const user = verifySessionToken(token);
     if (!user) return { user: null };
-    // Ensure user still exists (in case of future persistence)
     const existing = getUserByEmail(user.email);
     return { user: existing ?? user };
   });

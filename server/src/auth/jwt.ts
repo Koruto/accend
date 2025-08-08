@@ -1,23 +1,36 @@
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import type { PublicUser } from './types';
+import type { UserRole } from './types';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev_secret_change_me';
 export const SESSION_COOKIE = 'accend_session';
 
+interface SessionClaims extends JwtPayload {
+  sub: string;
+  email: string;
+  role: UserRole;
+  name: string;
+}
+
 export function signUserSession(user: PublicUser): string {
-  return jwt.sign({ sub: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, {
-    expiresIn: '7d',
-  });
+  const claims: SessionClaims = {
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    name: user.name,
+  };
+  return jwt.sign(claims, JWT_SECRET, { expiresIn: '7d' });
 }
 
 export function verifySessionToken(token: string): PublicUser | null {
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as any;
+    const payload = jwt.verify(token, JWT_SECRET) as SessionClaims;
+    if (!payload.sub || !payload.email || !payload.role || !payload.name) return null;
     return {
-      id: payload.sub as string,
-      email: payload.email as string,
-      role: payload.role as any,
-      name: payload.name as string,
+      id: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      name: payload.name,
     };
   } catch {
     return null;
