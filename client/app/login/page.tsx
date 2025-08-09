@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { login, signup } from '@/lib/auth';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -18,6 +18,14 @@ const ROLES = [
 type RoleValue = (typeof ROLES)[number]['value'];
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-svh flex items-center justify-center">Loading…</div>}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const router = useRouter();
   const search = useSearchParams();
   const redirectTo = useMemo(() => search.get('redirect') || '/dashboard', [search]);
@@ -139,7 +147,7 @@ export default function LoginPage() {
               <p className="text-sm text-center">
                 {mode === 'login' ? (
                   <>
-                    Don\'t have an account?{' '}
+                    Don't have an account?{' '}
                     <a
                       href="#signup"
                       className="underline"

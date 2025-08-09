@@ -11,6 +11,10 @@ import { Badge } from '@/components/ui/badge';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { RequestAccessDialog } from '@/components/requester/request-access-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { useQuery } from '@apollo/client';
+import { RESOURCES_QUERY, MY_REQUESTS_QUERY } from '@/lib/gql';
 
 interface ResourceEntry {
   id: string;
@@ -21,29 +25,18 @@ interface ResourceEntry {
 
 interface RequestEntry {
   id: string;
+  userId: string;
   resourceId: string;
-  resourceName: string;
-  type:
-    | 'deployment_env_lock'
-    | 'feature_flag_change'
-    | 'db_readonly'
-    | 'dwh_dataset_viewer'
-    | 'cloud_console_role'
-    | 'object_store_write_window'
-    | 'k8s_namespace_access'
-    | 'secrets_read'
-    | 'github_repo_permission'
-    | 'cicd_bypass'
-    | 'monitoring_edit'
-    | 'logging_query';
+  resourceType: string;
   status: 'pending' | 'approved' | 'denied' | 'expired';
-  requestedAt: string;
-  durationHours: number;
-  expiresAt: string | null;
-  approver: string | null;
-  decisionNote: string | null;
   justification: string;
-  approvedAt?: string;
+  createdAt: string;
+  durationHours?: number | null;
+  approvedAt?: string | null;
+  expiresAt?: string | null;
+  approverId?: string | null;
+  approverName?: string | null;
+  decisionNote?: string | null;
 }
 
 export default function DashboardPage() {
@@ -52,8 +45,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const [resources, setResources] = useState<ResourceEntry[]>([]);
-  const [requests, setRequests] = useState<RequestEntry[]>([]);
+  const { data: resourcesData } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
+  const { data: requestsData, loading: requestsLoading } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'no-cache' });
+
+  const resources = resourcesData?.resources ?? [];
+  const requests = requestsData?.myRequests ?? [];
 
   useEffect(() => {
     let cancelled = false;
@@ -73,36 +69,63 @@ export default function DashboardPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const resRes = await fetch('/data/resources.local.json', { cache: 'no-store' });
-        const resJson = (await resRes.json()) as { resources: ResourceEntry[] };
-        const reqRes = await fetch('/data/my_requests.local.json', { cache: 'no-store' });
-        const reqJson = (await reqRes.json()) as { requests: RequestEntry[] };
-        if (!cancelled) {
-          setResources(resJson.resources || []);
-          setRequests(reqJson.requests || []);
-        }
-      } catch {
-        // ignore prototype data load errors
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const now = useMemo(() => new Date(), []);
 
+  const [dateRange, setDateRange] = useState<'all' | '7d' | '30d' | '90d'>('30d');
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<RequestEntry['status']>>(new Set());
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [keyword, setKeyword] = useState('');
+
+  const uniqueTypes = useMemo(() => Array.from(new Set(requests.map((r) => r.resourceType))), [requests]);
+
+  function toggleStatus(s: RequestEntry['status']) {
+    setSelectedStatuses((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+  }
+
+  function resetFilters() {
+    setDateRange('30d');
+    setSelectedStatuses(new Set());
+    setSelectedType('all');
+    setKeyword('');
+  }
+
+  const filteredRequests = useMemo(() => {
+    let start: Date | null = null;
+    if (dateRange !== 'all') {
+      const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
+      start = new Date(now.getTime() - days * 24 * 3600 * 1000);
+    }
+    const kw = keyword.trim().toLowerCase();
+
+    return requests.filter((r) => {
+      const createdAt = new Date(r.createdAt);
+      if (start && createdAt < start) return false;
+      if (selectedStatuses.size > 0 && !selectedStatuses.has(r.status)) return false;
+      if (selectedType !== 'all' && r.resourceType !== selectedType) return false;
+      if (kw) {
+        const res = resources.find((x) => x.id === r.resourceId);
+        const resourceName = res?.name ?? '';
+        const hay = [resourceName, r.justification, r.approverName || '', r.decisionNote || '']
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(kw)) return false;
+      }
+      return true;
+    });
+  }, [requests, resources, dateRange, selectedStatuses, selectedType, keyword, now]);
+
   const metrics = useMemo(() => {
-    const approvedActive = requests.filter((r) => r.status === 'approved' && (!r.expiresAt || new Date(r.expiresAt) > now)).length;
-    const pending = requests.filter((r) => r.status === 'pending').length;
-    const expiring7d = requests.filter((r) => r.expiresAt && new Date(r.expiresAt) > now && new Date(r.expiresAt) < new Date(now.getTime() + 7 * 24 * 3600 * 1000)).length;
-    const activeLocks = requests.filter((r) => r.type === 'deployment_env_lock' && r.status === 'approved' && r.expiresAt && new Date(r.expiresAt) > now).length;
+    const approvedActive = filteredRequests.filter((r) => r.status === 'approved' && (!r.expiresAt || new Date(r.expiresAt) > now)).length;
+    const pending = filteredRequests.filter((r) => r.status === 'pending').length;
+    const expiring7d = filteredRequests.filter((r) => r.expiresAt && new Date(r.expiresAt) > now && new Date(r.expiresAt) < new Date(now.getTime() + 7 * 24 * 3600 * 1000)).length;
+    const activeLocks = filteredRequests.filter((r) => r.resourceType === 'deployment_env_lock' && r.status === 'approved' && r.expiresAt && new Date(r.expiresAt) > now).length;
     return { approvedActive, pending, expiring7d, activeLocks };
-  }, [requests, now]);
+  }, [filteredRequests, now]);
 
   async function handleLogout() {
     try {
@@ -180,6 +203,69 @@ export default function DashboardPage() {
               <h2 className="text-lg font-semibold">My Requests</h2>
               <RequestAccessDialog />
             </div>
+
+            <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Date range</label>
+                <Select value={dateRange} onValueChange={(v) => setDateRange(v as 'all' | '7d' | '30d' | '90d')}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Date range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All time</SelectItem>
+                    <SelectItem value="7d">Last 7 days</SelectItem>
+                    <SelectItem value="30d">Last 30 days</SelectItem>
+                    <SelectItem value="90d">Last 90 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Resource type</label>
+                <Select value={selectedType} onValueChange={setSelectedType}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    {uniqueTypes.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1 lg:col-span-2">
+                <label className="text-xs font-medium text-muted-foreground">Keyword</label>
+                <Input
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  className="h-8"
+                  placeholder="Search resource, justification, approver, notes"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Status</label>
+                <div className="flex flex-wrap gap-2">
+                  {(['pending', 'approved', 'denied', 'expired'] as RequestEntry['status'][]).map((s) => (
+                    <Button
+                      key={s}
+                      type="button"
+                      size="sm"
+                      variant={selectedStatuses.has(s) ? 'default' : 'outline'}
+                      onClick={() => toggleStatus(s)}
+                    >
+                      {s}
+                    </Button>
+                  ))}
+                  <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            </div>
+
             <div className="rounded-xl border">
               <Table>
                 <TableHeader>
@@ -195,27 +281,34 @@ export default function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {requests.length === 0 ? (
+                  {requestsLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Loading…</TableCell>
+                    </TableRow>
+                  ) : filteredRequests.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                        No requests yet. Create your first access request.
+                        No matching requests. Try adjusting your filters.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    requests.map((r) => (
-                      <TableRow key={r.id}>
-                        <TableCell className="whitespace-nowrap">{r.resourceName}</TableCell>
-                        <TableCell className="whitespace-nowrap">{r.type}</TableCell>
-                        <TableCell>{renderStatusBadge(r.status)}</TableCell>
-                        <TableCell className="whitespace-nowrap">{new Date(r.requestedAt).toLocaleString()}</TableCell>
-                        <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
-                        <TableCell className="whitespace-nowrap">{r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'}</TableCell>
-                        <TableCell className="whitespace-nowrap">{r.approver ?? '—'}</TableCell>
-                        <TableCell className="max-w-[320px] truncate" title={r.decisionNote || r.justification}>
-                          {r.decisionNote || r.justification}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    filteredRequests.map((r) => {
+                      const res = resources.find((x) => x.id === r.resourceId);
+                      return (
+                        <TableRow key={r.id}>
+                          <TableCell className="whitespace-nowrap">{res?.name ?? r.resourceId}</TableCell>
+                          <TableCell className="whitespace-nowrap">{r.resourceType}</TableCell>
+                          <TableCell>{renderStatusBadge(r.status)}</TableCell>
+                          <TableCell className="whitespace-nowrap">{new Date(r.createdAt).toLocaleString()}</TableCell>
+                          <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
+                          <TableCell className="whitespace-nowrap">{r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'}</TableCell>
+                          <TableCell className="whitespace-nowrap">{r.approverName ?? '—'}</TableCell>
+                          <TableCell className="max-w-[320px] truncate" title={r.decisionNote || r.justification}>
+                            {r.decisionNote || r.justification}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
