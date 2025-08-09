@@ -1,0 +1,85 @@
+export const typeDefs = `
+  enum UserRole { manager approver }
+  enum ResourceType {
+    deployment_env_lock
+    feature_flag_change
+    db_readonly
+    dwh_dataset_viewer
+    cloud_console_role
+    object_store_write_window
+    k8s_namespace_access
+    secrets_read
+    github_repo_permission
+    cicd_bypass
+    monitoring_edit
+    logging_query
+  }
+  enum RequestStatus { pending approved denied expired }
+  enum RiskLevel { low medium high }
+
+  type User { id: ID! name: String! email: String! role: UserRole! }
+
+  type Resource {
+    id: ID!
+    name: String!
+    type: ResourceType!
+    riskLevel: RiskLevel!
+    approverRole: UserRole!
+    tags: [String!]!
+  }
+
+  type Request {
+    id: ID!
+    userId: ID!
+    resourceId: ID!
+    resourceType: ResourceType!
+    status: RequestStatus!
+    justification: String!
+    createdAt: String!
+    durationHours: Int
+    approvedAt: String
+    expiresAt: String
+    approverId: ID
+    approverName: String
+    decisionNote: String
+  }
+
+  type MetricsMe {
+    activeAccesses: Int!
+    pending: Int!
+    expiring7d: Int!
+    activeDeploymentLocks: Int!
+  }
+
+  input SignupInput { name: String!, email: String!, password: String!, role: UserRole! }
+  input LoginInput { email: String!, password: String! }
+
+  type AuthPayload { user: User! }
+
+  input RequestFilter {
+    statuses: [RequestStatus!]
+    resourceIds: [ID!]
+    resourceTypes: [ResourceType!]
+    start: String
+    end: String
+    q: String
+  }
+
+  input CreateRequestInput { resourceId: ID!, justification: String!, durationHours: Int }
+
+  type Query {
+    viewer: User
+    resources: [Resource!]!
+    myRequests(filter: RequestFilter): [Request!]!
+    metricsMe: MetricsMe!
+  }
+
+  type Mutation {
+    signup(input: SignupInput!): AuthPayload!
+    login(input: LoginInput!): AuthPayload!
+    logout: Boolean!
+    createRequest(input: CreateRequestInput!): Request!
+  }
+`;
+
+export default typeDefs; 
