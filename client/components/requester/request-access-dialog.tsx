@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useMutation, useQuery } from "@apollo/client";
+import { CREATE_REQUEST_MUTATION, RESOURCES_QUERY, MY_REQUESTS_QUERY } from "@/lib/gql";
 
 interface ResourceOption {
   id: string;
@@ -14,26 +16,36 @@ interface ResourceOption {
 
 export function RequestAccessDialog() {
   const [open, setOpen] = useState(false);
-  const [resources, setResources] = useState<ResourceOption[]>([]);
   const [resourceId, setResourceId] = useState<string>("");
   const [justification, setJustification] = useState("");
   const [duration, setDuration] = useState<string>("");
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/data/resources.local.json', { cache: 'no-store' });
-        const json = await res.json();
-        if (!cancelled) {
-          setResources((json.resources || []).map((r: any) => ({ id: r.id, name: r.name, type: r.type })));
-        }
-      } catch {}
-    })();
-    return () => { cancelled = true };
-  }, []);
+  const { data } = useQuery<{ resources: ResourceOption[] }>(RESOURCES_QUERY);
+  const resources = data?.resources ?? [];
+
+  const [createRequest, { loading: creating }] = useMutation(CREATE_REQUEST_MUTATION, {
+    refetchQueries: [{ query: MY_REQUESTS_QUERY }],
+    awaitRefetchQueries: true,
+  });
 
   const canSubmit = useMemo(() => resourceId && justification.trim().length > 5, [resourceId, justification]);
+
+  async function handleSubmit() {
+    if (!canSubmit) return;
+    await createRequest({
+      variables: {
+        input: {
+          resourceId,
+          justification,
+          durationHours: duration ? Number(duration) : undefined,
+        },
+      },
+    });
+    setOpen(false);
+    setResourceId("");
+    setJustification("");
+    setDuration("");
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -69,7 +81,7 @@ export function RequestAccessDialog() {
                 <SelectValue placeholder="Select duration (optional)" />
               </SelectTrigger>
               <SelectContent>
-                {['1','2','4','8','24'].map((h) => (
+                {["1","2","4","8","24"].map((h) => (
                   <SelectItem key={h} value={h}>{h}h</SelectItem>
                 ))}
               </SelectContent>
@@ -78,7 +90,7 @@ export function RequestAccessDialog() {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!canSubmit} onClick={() => setOpen(false)}>Submit</Button>
+          <Button disabled={!canSubmit || creating} onClick={handleSubmit}>{creating ? 'Submitting…' : 'Submit'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
