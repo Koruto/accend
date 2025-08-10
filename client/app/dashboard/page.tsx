@@ -14,9 +14,11 @@ import { RequestAccessDialog } from '@/components/requester/request-access-dialo
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useMutation, useQuery } from '@apollo/client';
-import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING } from '@/lib/gql';
+import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY } from '@/lib/gql';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 
 interface EnvironmentEntry {
   id: string;
@@ -34,6 +36,18 @@ interface ActiveBookingEntry {
   endsAt?: string | null;
   durationMinutes: number;
   extensionMinutesTotal?: number | null;
+}
+
+interface BookingEntry {
+  id: string;
+  envId: string;
+  status: string;
+  createdAt: string;
+  startedAt?: string | null;
+  endsAt?: string | null;
+  releasedAt?: string | null;
+  closedReason?: string | null;
+  durationMinutes: number;
 }
 
 interface ResourceEntry {
@@ -68,21 +82,24 @@ export default function DashboardPage() {
   const { data: resourcesData, loading: resourcesLoading } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
   const { data: requestsData, loading: requestsLoading } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
 
-  const { data: envsData, loading: envsLoading, refetch: refetchEnvs } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache' });
-  const { data: activeBookingData, refetch: refetchActive } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: envsData, loading: envsLoading, refetch: refetchEnvs } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache', pollInterval: 15000 });
+  const { data: activeBookingData, refetch: refetchActive } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache', pollInterval: 10000 });
+  const { data: bookingsData, loading: bookingsLoading, refetch: refetchBookings } = useQuery<{ bookingsMe: BookingEntry[] }>(BOOKINGS_ME_QUERY, { fetchPolicy: 'no-cache', pollInterval: 30000 });
 
   const [createEnvBooking, { loading: creatingBooking }] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
-    onCompleted: () => { refetchEnvs(); refetchActive(); },
+    onCompleted: () => { refetchEnvs(); refetchActive(); refetchBookings(); setBookOpen(false); setBookEnvId(''); setBookError(''); },
+    onError: (e) => setBookError(e.message || 'Failed to book environment'),
   });
   const [extendEnvBooking, { loading: extending }] = useMutation(EXTEND_ENVIRONMENT_BOOKING, {
-    onCompleted: () => { refetchEnvs(); refetchActive(); },
+    onCompleted: () => { refetchEnvs(); refetchActive(); refetchBookings(); },
   });
   const [releaseEnvBooking, { loading: releasing }] = useMutation(RELEASE_ENVIRONMENT_BOOKING, {
-    onCompleted: () => { refetchEnvs(); refetchActive(); },
+    onCompleted: () => { refetchEnvs(); refetchActive(); refetchBookings(); },
   });
 
   const environments = envsData?.environments ?? [];
   const activeBooking = activeBookingData?.activeBookingMe ?? null;
+  const bookings = bookingsData?.bookingsMe ?? [];
 
   const resources = resourcesData?.resources ?? [];
   const requests = requestsData?.myRequests ?? [];
@@ -214,6 +231,55 @@ export default function DashboardPage() {
   const freeEnvs = environments.filter((e) => e.isFreeNow);
   const lockedEnvs = environments.filter((e) => !e.isFreeNow);
 
+  function formatDelta(toIso?: string | null): string {
+    if (!toIso) return '—';
+    const ms = new Date(toIso).getTime() - Date.now();
+    if (ms <= 0) return 'now';
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    return `${mins}m ${secs}s`;
+  }
+
+  const recentBookings = useMemo(() => {
+    const list = bookings.slice(0, 5);
+    return list.map((b) => {
+      const status = (() => {
+        if (b.releasedAt || b.closedReason === 'released') return 'released';
+        const nowTs = now.getTime();
+        const endTs = b.endsAt ? new Date(b.endsAt).getTime() : 0;
+        if (endTs > 0 && endTs <= nowTs) return 'finished';
+        return b.status;
+      })();
+      return { ...b, status };
+    });
+  }, [bookings, now]);
+
+  // Booking dialog state
+  const [bookOpen, setBookOpen] = useState(false);
+  const [bookEnvId, setBookEnvId] = useState('');
+  const [bookDuration, setBookDuration] = useState('60');
+  const [bookJustification, setBookJustification] = useState('Testing window');
+  const [bookError, setBookError] = useState('');
+
+  // Active booking countdown
+  const [remaining, setRemaining] = useState<string>('');
+  useEffect(() => {
+    let timer: any;
+    function tick() {
+      if (!activeBooking || !activeBooking.endsAt) { setRemaining(''); return; }
+      const ms = new Date(activeBooking.endsAt).getTime() - Date.now();
+      if (ms <= 0) { setRemaining('0:00'); return; }
+      const mins = Math.floor(ms / 60000);
+      const secs = Math.floor((ms % 60000) / 1000);
+      setRemaining(`${mins}:${secs.toString().padStart(2, '0')}`);
+    }
+    tick();
+    timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [activeBooking]);
+
+  const extTotal = activeBooking?.extensionMinutesTotal ?? 0;
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -275,8 +341,10 @@ export default function DashboardPage() {
                             <Button
                               size="sm"
                               disabled={!!activeBooking || creatingBooking}
-                              onClick={async () => {
-                                await createEnvBooking({ variables: { envId: env.id, durationMinutes: 60, justification: 'Testing window' } });
+                              onClick={() => {
+                                setBookEnvId(env.id);
+                                setBookOpen(true);
+                                setBookError('');
                               }}
                             >
                               {activeBooking ? 'Booked' : 'Book'}
@@ -294,7 +362,7 @@ export default function DashboardPage() {
                           <div key={env.id} className="flex items-center justify-between rounded border p-3">
                             <div>
                               <div className="text-sm font-medium">{env.name}</div>
-                              <div className="text-xs text-muted-foreground">Free at {env.freeAt ? new Date(env.freeAt).toLocaleTimeString() : '—'} (+{env.bufferMinutes}m)</div>
+                              <div className="text-xs text-muted-foreground">Free at {env.freeAt ? new Date(env.freeAt).toLocaleTimeString() : '—'} (+{env.bufferMinutes}m) · in {formatDelta(env.freeAt)}</div>
                             </div>
                             <Button size="sm" variant="outline" disabled>
                               Locked
@@ -317,21 +385,94 @@ export default function DashboardPage() {
                 ) : (
                   <div className="space-y-3">
                     <div className="text-sm">Env: {environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId}</div>
-                    <div className="text-sm">Ends at: {activeBooking.endsAt ? new Date(activeBooking.endsAt).toLocaleTimeString() : '—'}</div>
+                    <div className="text-sm">Ends at: {activeBooking.endsAt ? new Date(activeBooking.endsAt).toLocaleTimeString() : '—'} ({remaining})</div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" disabled={releasing} onClick={async () => {
+                        if (!window.confirm('Release this environment now?')) return;
                         await releaseEnvBooking({ variables: { bookingId: activeBooking.id } });
                       }}>Release</Button>
-                      <Button size="sm" disabled={extending} onClick={async () => {
+                      <Button size="sm" disabled={extending || extTotal + 15 > 60} onClick={async () => {
                         await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 15 } });
                       }}>+15m</Button>
-                      <Button size="sm" disabled={extending} onClick={async () => {
+                      <Button size="sm" disabled={extending || extTotal + 30 > 60} onClick={async () => {
                         await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 30 } });
                       }}>+30m</Button>
-                      <Button size="sm" disabled={extending} onClick={async () => {
+                      <Button size="sm" disabled={extending || extTotal + 60 > 60} onClick={async () => {
                         await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 60 } });
                       }}>+60m</Button>
                     </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          {/* Booking dialog */}
+          <Dialog open={bookOpen} onOpenChange={setBookOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Book environment</DialogTitle>
+              </DialogHeader>
+              {bookError ? (
+                <div className="text-sm text-rose-600">{bookError}</div>
+              ) : null}
+              <div className="grid gap-3 py-2">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Duration</label>
+                  <Select value={bookDuration} onValueChange={setBookDuration}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select duration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['30','60','120','240'].map((m) => (
+                        <SelectItem key={m} value={m}>{Number(m) / 60 < 1 ? `${m}m` : `${Number(m)/60}h`}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Justification</label>
+                  <Textarea rows={3} value={bookJustification} onChange={(e) => setBookJustification(e.target.value)} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBookOpen(false)}>Cancel</Button>
+                <Button
+                  disabled={!bookEnvId || creatingBooking || bookJustification.trim().length < 3}
+                  onClick={async () => {
+                    await createEnvBooking({ variables: { envId: bookEnvId, durationMinutes: Number(bookDuration), justification: bookJustification } });
+                  }}
+                >
+                  {creatingBooking ? 'Booking…' : 'Book'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Recent bookings */}
+          <section>
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent bookings</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {bookingsLoading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : recentBookings.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No recent bookings.</div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {recentBookings.map((b) => (
+                      <div key={b.id} className="flex items-center justify-between rounded border p-3">
+                        <div>
+                          <div className="text-sm font-medium">{environments.find((e) => e.id === b.envId)?.name ?? b.envId}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {b.startedAt ? new Date(b.startedAt).toLocaleTimeString() : '—'} → {b.endsAt ? new Date(b.endsAt).toLocaleTimeString() : '—'}
+                          </div>
+                        </div>
+                        <div className="text-xs capitalize">{b.status}</div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>

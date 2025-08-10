@@ -31,6 +31,22 @@ export const typeDefs = `
     allowedRequesterRoles: [UserRole!]!
   }
 
+  type Request {
+    id: ID!
+    userId: ID!
+    resourceId: ID!
+    resourceType: ResourceType!
+    status: RequestStatus!
+    justification: String!
+    createdAt: String!
+    durationHours: Int
+    approvedAt: String
+    expiresAt: String
+    approverId: ID
+    approverName: String
+    decisionNote: String
+  }
+
   type Environment {
     id: ID!
     name: String!
