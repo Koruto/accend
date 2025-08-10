@@ -277,285 +277,260 @@ export default function DashboardPage() {
           </div>
         </div>
 
-          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[0,1,2,3].map((i) => (
-              <Card key={i}>
-                <CardHeader>
-                  <CardTitle>
-                    {i === 0 ? 'Active Accesses' : i === 1 ? 'Pending Requests' : i === 2 ? 'Expiring in 7 days' : 'Active Deployment Locks'}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {queriesLoading ? (
-                    <Skeleton className="h-8 w-16" />
-                  ) : (
-                    <p className="text-3xl font-semibold">
-                      {i === 0 ? metrics.approvedActive : i === 1 ? metrics.pending : i === 2 ? metrics.expiring7d : metrics.activeLocks}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </section>
-
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Active Environment</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!activeBooking ? (
-                  <div className="text-sm text-muted-foreground">You have no active environment booking.</div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="text-sm">Env: {environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId}</div>
-                    <div className="text-sm">Ends at: {activeBooking.endsAt ? new Date(activeBooking.endsAt).toLocaleTimeString() : '—'} ({/* countdown removed for brevity */})</div>
-                    {latestDeploy && latestDeployDerived ? (
-                      <div className="rounded border p-3 text-sm">
-                        <div className="font-medium mb-1">Last redeploy</div>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="text-xs">Branch: {latestDeploy.branch}</div>
-                            <div className="text-xs flex items-center gap-2">Status:
-                              <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] capitalize ${latestDeployDerived.status === 'deployed' ? 'bg-emerald-100 text-emerald-700' : latestDeployDerived.status === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>
-                                {latestDeployDerived.status}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="text-xs">{fmtTime(latestDeployDerived.finishedAt)}</div>
+        <section className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:auto-rows-[180px]">
+          <Card className="lg:col-span-3 lg:row-start-1 lg:row-span-1">
+            <CardContent className="py-3">
+              {!activeBooking ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm text-accend-muted">No active environment.</div>
+                  <div className="flex items-center gap-2 overflow-x-auto">
+                    {environments.slice(0, 3).map((env) => {
+                      const freeNow = env.isFreeNow;
+                      return (
+                        <div key={env.id} className="flex items-center gap-2 rounded border border-accend-border bg-white px-3 py-1">
+                          <span className="text-xs font-medium text-accend-ink">{env.name}</span>
+                          <span className="text-[10px] text-accend-muted">
+                            {freeNow ? 'Free now' : `Free at ${env.freeAt ? new Date(env.freeAt).toLocaleTimeString() : '—'} (+${env.bufferMinutes}m)`}
+                          </span>
+                          <Button
+                            size="sm"
+                            className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-7 px-3"
+                            onClick={async () => {
+                              await createEnvBooking({ variables: { envId: env.id, durationMinutes: 60, justification: 'Booking' } });
+                            }}
+                          >
+                            Book
+                          </Button>
                         </div>
-                        {(latestDeployDerived.status === 'queued' || latestDeployDerived.status === 'deploying') ? (
-                          <div className="mt-2 h-1 w-full rounded bg-muted">
-                            <div className="h-1 rounded bg-blue-500" style={{ width: `${Math.max(2, Math.min(98, Math.floor((latestDeployDerived.progress || 0) * 100)))}%` }} />
-                          </div>
-                        ) : null}
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-lg font-semibold text-accend-ink">
+                        {environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId}
                       </div>
-                    ) : null}
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" disabled={releasing || deployBusy} onClick={() => setReleaseOpen(true)}>Release</Button>
-                      <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 15 > 60} onClick={async () => {
-                        await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 15 } });
-                      }}>+15m</Button>
-                      <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 30 > 60} onClick={async () => {
-                        await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 30 } });
-                      }}>+30m</Button>
-                      <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 60 > 60} onClick={async () => {
-                        await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 60 } });
-                      }}>+60m</Button>
-                      <Button size="sm" variant="secondary" disabled={deployBusy} onClick={() => setRedeployOpen(true)}>Redeploy</Button>
+                      <div className="text-xs text-accend-muted">
+                        Ends in {(() => { const ms = (activeBooking.endsAt ? new Date(activeBooking.endsAt).getTime() : Date.now()) - nowTick; const mm = Math.max(0, Math.floor(ms / 60000)); const ss = Math.max(0, Math.floor((ms % 60000) / 1000)); return `${mm}m ${ss}s`; })()}
+                      </div>
                     </div>
-                    {deployBusy ? (
-                      <div className="text-xs text-muted-foreground">Redeploy in progress… actions temporarily limited</div>
-                    ) : null}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Button size="sm" variant="outline" disabled={releasing || deployBusy} onClick={() => setReleaseOpen(true)} className="cursor-pointer">Release</Button>
+                      <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 15 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 15 } }); }} className="cursor-pointer">+15</Button>
+                      <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 30 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 30 } }); }} className="cursor-pointer">+30</Button>
+                      <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 60 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 60 } }); }} className="cursor-pointer">+60</Button>
+                      <Button size="sm" variant="secondary" disabled={deployBusy} onClick={() => setRedeployOpen(true)} className="cursor-pointer">Redeploy</Button>
+                    </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-start-4 lg:row-start-1 lg:row-span-2">
+            <CardHeader>
+              <CardTitle className="text-accend-ink">Queued requests</CardTitle>
+            </CardHeader>
+            <CardContent className="h-full overflow-auto">
+              {(() => {
+                const pending = requests.filter((r) => r.status === 'pending').slice(0, 10);
+                if (pending.length === 0) return <div className="text-sm text-accend-muted">No pending approvals.</div>;
+                return (
+                  <div className="flex flex-col gap-2">
+                    {pending.map((r) => {
+                      const res = resourcesById.get(r.resourceId);
+                      const eta = 'by EOD';
+                      return (
+                        <div key={r.id} className="flex items-center justify-between rounded border border-accend-border bg-white p-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-accend-ink truncate">{res?.name ?? r.resourceType}</div>
+                            <div className="text-xs text-accend-muted truncate">Requested {new Date(r.createdAt).toLocaleString()}</div>
+                          </div>
+                          <div className="text-[10px] text-accend-muted whitespace-nowrap">ETA {eta}</div>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-start-4 lg:row-start-3 lg:row-span-2">
+            <CardHeader>
+              <CardTitle className="text-accend-ink">Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-full rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
+                Activity (coming soon)
+              </div>
+            </CardContent>
+          </Card>
+
+
+          <Card className="lg:col-span-3 lg:row-start-2 lg:row-span-3">
+            <CardHeader>
+              <CardTitle className="text-accend-ink">Weekly stats</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-full min-h-[360px] rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
+                Weekly bar chart (coming soon)
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+          <section className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-accend-ink">Avg wait to start</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-48 rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
+                  Semi-circle gauge (coming soon)
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle>Recent bookings</CardTitle>
+                <CardTitle className="text-accend-ink">Top environments by usage (30d)</CardTitle>
               </CardHeader>
               <CardContent>
-                {bookings.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No recent bookings.</div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {recentBookings.map((b) => (
-                      <div key={b.id} className="flex items-center justify-between rounded border p-3">
-                        <div>
-                          <div className="text-sm font-medium">{environments.find((e) => e.id === b.envId)?.name ?? b.envId}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {b.startedAt ? new Date(b.startedAt).toLocaleTimeString() : '—'} → {b.endsAt ? new Date(b.endsAt).toLocaleTimeString() : '—'}
-                          </div>
-                        </div>
-                        <div className="text-xs capitalize">{b.status}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Test Runs</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {recentSimRuns.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No simulated runs yet.</div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {recentSimRuns.map(({ rec, d }) => (
-                      <div key={rec.id} className="rounded border p-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="text-sm font-medium">{rec.branch} · {rec.suite}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {fmtTime(d.startedAt)} → {fmtTime(d.finishedAt)}
-                            </div>
-                          </div>
-                          <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] capitalize ${d.status === 'passed' ? 'bg-emerald-100 text-emerald-700' : d.status === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>{d.status}</span>
-                        </div>
-                        {(d.status === 'queued' || d.status === 'running') ? (
-                          <div className="mt-2 h-1 w-full rounded bg-muted">
-                            <div className="h-1 rounded bg-blue-500" style={{ width: `${Math.max(2, Math.min(98, Math.floor((d.progress || 0) * 100)))}%` }} />
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="h-48 rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
+                  Usage bar chart (coming soon)
+                </div>
               </CardContent>
             </Card>
           </section>
 
           <section>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold">My Requests</h2>
-              <div />
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-accend-ink">My requests</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-accend-muted">Date range</label>
+                    <Select value={dateRange} onValueChange={(v) => setDateRange(v as 'all' | '7d' | '30d' | '90d')}>
+                      <SelectTrigger className="h-8">
+                        <SelectValue placeholder="Date range" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All time</SelectItem>
+                        <SelectItem value="7d">Last 7 days</SelectItem>
+                        <SelectItem value="30d">Last 30 days</SelectItem>
+                        <SelectItem value="90d">Last 90 days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-            <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Date range</label>
-                <Select value={dateRange} onValueChange={(v) => setDateRange(v as 'all' | '7d' | '30d' | '90d')}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue placeholder="Date range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All time</SelectItem>
-                    <SelectItem value="7d">Last 7 days</SelectItem>
-                    <SelectItem value="30d">Last 30 days</SelectItem>
-                    <SelectItem value="90d">Last 90 days</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-accend-muted">Resource type</label>
+                    <Select value={selectedType} onValueChange={setSelectedType}>
+                      <SelectTrigger className="h-8">
+                        <SelectValue placeholder="All types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {uniqueTypes.map((t) => (
+                          <SelectItem key={t} value={t}>{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Resource type</label>
-                <Select value={selectedType} onValueChange={setSelectedType}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue placeholder="All types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    {uniqueTypes.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div className="space-y-1 lg:col-span-2">
+                    <label className="text-xs font-medium text-accend-muted">Keyword</label>
+                    <Input
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                      className="h-8"
+                      placeholder="Search resource, justification, approver, notes"
+                    />
+                  </div>
 
-              <div className="space-y-1 lg:col-span-2">
-                <label className="text-xs font-medium text-muted-foreground">Keyword</label>
-                <Input
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  className="h-8"
-                  placeholder="Search resource, justification, approver, notes"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Status</label>
-                <div className="flex flex-wrap gap-2">
-                  {(['pending', 'approved', 'denied', 'expired'] as RequestEntry['status'][]).map((s) => (
-                    <Button
-                      key={s}
-                      type="button"
-                      size="sm"
-                      variant={selectedStatuses.has(s) ? 'default' : 'outline'}
-                      onClick={() => toggleStatus(s)}
-                    >
-                      {s}
-                    </Button>
-                  ))}
-                  <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
-                    Clear
-                  </Button>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-accend-muted">Status</label>
+                    <div className="flex flex-wrap gap-2">
+                      {(['pending', 'approved', 'denied', 'expired'] as RequestEntry['status'][]).map((s) => (
+                        <Button
+                          key={s}
+                          type="button"
+                          size="sm"
+                          variant={selectedStatuses.has(s) ? 'default' : 'outline'}
+                          onClick={() => toggleStatus(s)}
+                        >
+                          {s}
+                        </Button>
+                      ))}
+                      <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="rounded-xl border p-4 mb-4">
-              <div className="mb-2 text-sm font-medium">Requests (last 30 days)</div>
-              <div className="h-64 w-full">
-                {queriesLoading ? (
-                  <Skeleton className="h-full w-full" />
-                ) : (
-                  <ResponsiveContainer>
-                    <BarChart data={timeSeries30d} margin={{ left: 12, right: 12 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="pending" stackId="a" fill="#f59e0b" name="Pending" />
-                      <Bar dataKey="approved" stackId="a" fill="#10b981" name="Approved" />
-                      <Bar dataKey="denied" stackId="a" fill="#ef4444" name="Denied" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-xl border">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40">
-                    <TableHead>Resource</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Requested On</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Expires At</TableHead>
-                    <TableHead>Approver</TableHead>
-                    <TableHead>Notes</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {queriesLoading ? (
-                    Array.from({ length: 5 }).map((_, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-36" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-72" /></TableCell>
+                <div className="rounded-xl border border-accend-border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40">
+                        <TableHead>Resource</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Requested On</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Expires At</TableHead>
+                        <TableHead>Approver</TableHead>
+                        <TableHead>Notes</TableHead>
                       </TableRow>
-                    ))
-                  ) : filteredRequests.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                        No matching requests. Try adjusting your filters.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredRequests.map((r) => {
-                      const res = resourcesById.get(r.resourceId);
-                      return (
-                        <TableRow key={r.id}>
-                          <TableCell className="whitespace-nowrap">{res?.name ?? r.resourceId}</TableCell>
-                          <TableCell className="whitespace-nowrap">{r.resourceType}</TableCell>
-                          <TableCell>{renderStatusBadge(r.status)}</TableCell>
-                          <TableCell className="whitespace-nowrap">{new Date(r.createdAt).toLocaleString()}</TableCell>
-                          <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
-                          <TableCell className="whitespace-nowrap">{r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'}</TableCell>
-                          <TableCell className="whitespace-nowrap">{r.approverName ?? '—'}</TableCell>
-                          <TableCell className="max-w-[320px] truncate" title={r.decisionNote || r.justification}>
-                            {r.decisionNote || r.justification}
+                    </TableHeader>
+                    <TableBody>
+                      {queriesLoading ? (
+                        Array.from({ length: 5 }).map((_, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                            <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                            <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                            <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                            <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                            <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                            <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                            <TableCell><Skeleton className="h-4 w-72" /></TableCell>
+                          </TableRow>
+                        ))
+                      ) : filteredRequests.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                            No matching requests. Try adjusting your filters.
                           </TableCell>
                         </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                      ) : (
+                        filteredRequests.map((r) => {
+                          const res = resourcesById.get(r.resourceId);
+                          return (
+                            <TableRow key={r.id}>
+                              <TableCell className="whitespace-nowrap">{res?.name ?? r.resourceId}</TableCell>
+                              <TableCell className="whitespace-nowrap">{r.resourceType}</TableCell>
+                              <TableCell>{renderStatusBadge(r.status)}</TableCell>
+                              <TableCell className="whitespace-nowrap">{new Date(r.createdAt).toLocaleString()}</TableCell>
+                              <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
+                              <TableCell className="whitespace-nowrap">{r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'}</TableCell>
+                              <TableCell className="whitespace-nowrap">{r.approverName ?? '—'}</TableCell>
+                              <TableCell className="max-w-[320px] truncate" title={r.decisionNote || r.justification}>
+                                {r.decisionNote || r.justification}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
           </section>
         </main>
       
