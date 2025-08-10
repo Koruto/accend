@@ -16,7 +16,11 @@ const createRequestSchema = z.object({
 export const resolvers = (cookieSecure: boolean) => ({
   Query: {
     viewer: async (_: unknown, __: unknown, ctx: any) => ctx.user,
-    resources: async () => resources,
+    resources: async (_: unknown, __: unknown, ctx: any) => {
+      const role = ctx.user?.role as 'developer' | 'qa' | 'admin' | undefined;
+      if (!role || role === 'admin') return resources;
+      return resources.filter((r) => !r.allowedRequesterRoles || r.allowedRequesterRoles.includes(role));
+    },
     myRequests: async (_: unknown, _args: any, ctx: any) => {
       const user = ctx.user;
       if (!user) return [];
@@ -37,7 +41,7 @@ export const resolvers = (cookieSecure: boolean) => ({
     },
   },
   Mutation: {
-    signup: async (_: unknown, args: { input: { name: string; email: string; password: string; role: 'manager' | 'approver' } }, ctx: { reply: FastifyReply }) => {
+    signup: async (_: unknown, args: { input: { name: string; email: string; password: string; role: 'developer' | 'qa' | 'admin' } }, ctx: { reply: FastifyReply }) => {
       const parsed = signupSchema.safeParse(args.input);
       if (!parsed.success) {
         throw new Error('INVALID_BODY');
@@ -88,6 +92,10 @@ export const resolvers = (cookieSecure: boolean) => ({
       const resource = resources.find((r) => r.id === parsed.data.resourceId);
       if (!resource) {
         throw new Error('RESOURCE_NOT_FOUND');
+      }
+      const role = user.role as 'developer' | 'qa' | 'admin';
+      if (role !== 'admin' && resource.allowedRequesterRoles && !resource.allowedRequesterRoles.includes(role)) {
+        throw new Error('FORBIDDEN');
       }
       seedRequestsForUser(user.id);
       const list = requestsByUserId.get(user.id)!;

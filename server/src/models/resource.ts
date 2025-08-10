@@ -23,6 +23,7 @@ export interface ResourceRecord {
   riskLevel: RiskLevel;
   approverRole: UserRole; // who approves
   tags: string[];
+  allowedRequesterRoles?: UserRole[]; // visibility filter; admin bypasses
   // type-specific optional details kept for future use
   details?: Record<string, unknown>;
 } 

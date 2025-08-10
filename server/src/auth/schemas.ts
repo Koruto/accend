@@ -4,7 +4,7 @@ export const signupSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(['manager', 'approver']),
+  role: z.enum(['developer', 'qa', 'admin']),
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;

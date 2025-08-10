@@ -1,5 +1,5 @@
 export const typeDefs = `
-  enum UserRole { manager approver }
+  enum UserRole { developer qa admin }
   enum ResourceType {
     deployment_env_lock
     feature_flag_change
@@ -26,6 +26,7 @@ export const typeDefs = `
     riskLevel: RiskLevel!
     approverRole: UserRole!
     tags: [String!]!
+    allowedRequesterRoles: [UserRole!]!
   }
 
   type Request {

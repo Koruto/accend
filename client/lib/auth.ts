@@ -28,7 +28,7 @@ export async function signup(input: {
   name: string;
   email: string;
   password: string;
-  role: 'manager' | 'approver';
+  role: 'developer' | 'qa' | 'admin';
 }): Promise<{ user: PublicUser }> {
   const res = await client.mutate<{ signup: { user: PublicUser } }>({
     mutation: SIGNUP_MUTATION,

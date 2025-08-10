@@ -10,12 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type Mode = 'login' | 'signup';
-const ROLES = [
-  { value: 'manager', label: 'Manager' },
-  { value: 'approver', label: 'Approver' },
+const CATEGORIES = [
+  { value: 'developer', label: 'Developer' },
+  { value: 'qa', label: 'QA Engineer' },
 ] as const;
 
-type RoleValue = (typeof ROLES)[number]['value'];
+type CategoryValue = (typeof CATEGORIES)[number]['value'];
 
 export default function LoginPage() {
   return (
@@ -35,7 +35,10 @@ function LoginPageInner() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<RoleValue>('manager');
+
+  // New role selection UX
+  const [roleType, setRoleType] = useState<'requestor' | 'admin'>('requestor');
+  const [category, setCategory] = useState<CategoryValue>('developer');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -48,7 +51,8 @@ function LoginPageInner() {
       if (mode === 'login') {
         await login({ email, password });
       } else {
-        await signup({ name, email, password, role });
+        const role = roleType === 'admin' ? 'admin' : category;
+        await signup({ name, email, password, role: role as 'developer' | 'qa' | 'admin' });
       }
       router.push(redirectTo);
     } catch (err) {
@@ -123,21 +127,37 @@ function LoginPageInner() {
               </div>
 
               {mode === 'signup' && (
-                <div className="space-y-1">
-                  <Label htmlFor="role">Role</Label>
-                  <Select value={role} onValueChange={(v) => setRole(v as RoleValue)}>
-                    <SelectTrigger id="role">
-                      <SelectValue placeholder="Select a role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROLES.map((r) => (
-                        <SelectItem key={r.value} value={r.value}>
-                          {r.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label>Account type</Label>
+                    <div className="flex gap-2">
+                      <Button type="button" variant={roleType === 'requestor' ? 'default' : 'outline'} onClick={() => setRoleType('requestor')}>
+                        Requestor
+                      </Button>
+                      <Button type="button" variant={roleType === 'admin' ? 'default' : 'outline'} onClick={() => setRoleType('admin')}>
+                        Admin
+                      </Button>
+                    </div>
+                  </div>
+
+                  {roleType === 'requestor' && (
+                    <div className="space-y-1">
+                      <Label htmlFor="category">Persona</Label>
+                      <Select value={category} onValueChange={(v) => setCategory(v as CategoryValue)}>
+                        <SelectTrigger id="category">
+                          <SelectValue placeholder="Select persona" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CATEGORIES.map((c) => (
+                            <SelectItem key={c.value} value={c.value}>
+                              {c.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </>
               )}
 
               <Button type="submit" disabled={submitting} className="w-full">
