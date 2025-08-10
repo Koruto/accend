@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useDeferredValue } from 'react';
-import { useRouter } from 'next/navigation';
-import { logout, me } from '@/lib/auth';
+import { me } from '@/lib/auth';
 import type { PublicUser } from '@/types/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,8 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { useMutation, useQuery } from '@apollo/client';
 import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY, BRANCH_REFS_QUERY } from '@/lib/gql';
-import { listRuns, deriveRun, listDeploys, deriveDeploy, addDeploy, formatTime as fmtTime } from '@/lib/sim';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { listRuns, deriveRun, listDeploys, deriveDeploy, addDeploy} from '@/lib/sim';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -74,7 +73,7 @@ interface RequestEntry {
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
+
   const [user, setUser] = useState<PublicUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -127,7 +126,6 @@ export default function DashboardPage() {
   }, []);
 
   const simRuns = useMemo(() => listRuns(), [nowTick]);
-  const recentSimRuns = useMemo(() => simRuns.slice(0, 5).map((r) => ({ rec: r, d: deriveRun(nowTick, r) })), [simRuns, nowTick]);
 
   const envDeploys = useMemo(() => {
     if (!activeBooking) return [] as ReturnType<typeof listDeploys>;
@@ -195,42 +193,7 @@ export default function DashboardPage() {
     });
   }, [requests, resourcesById, rangeStart, selectedStatuses, selectedType, deferredKeyword]);
 
-  const metrics = useMemo(() => {
-    const approvedActive = filteredRequests.filter((r) => r.status === 'approved' && (!r.expiresAt || new Date(r.expiresAt) > now)).length;
-    const pending = filteredRequests.filter((r) => r.status === 'pending').length;
-    const expiring7d = filteredRequests.filter((r) => r.expiresAt && new Date(r.expiresAt) > now && new Date(r.expiresAt) < new Date(now.getTime() + 7 * 24 * 3600 * 1000)).length;
-    const activeLocks = filteredRequests.filter((r) => r.resourceType === 'deployment_env_lock' && r.status === 'approved' && r.expiresAt && new Date(r.expiresAt) > now).length;
-    return { approvedActive, pending, expiring7d, activeLocks };
-  }, [filteredRequests, now]);
-
-  const timeSeries30d = useMemo(() => {
-    const days = 30;
-    const buckets = new Map<string, { date: string; pending: number; approved: number; denied: number }>();
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 24 * 3600 * 1000);
-      const key = d.toISOString().slice(0, 10);
-      buckets.set(key, { date: key, pending: 0, approved: 0, denied: 0 });
-    }
-    for (const r of filteredRequests) {
-      const key = new Date(r.createdAt).toISOString().slice(0, 10);
-      const bucket = buckets.get(key);
-      if (!bucket) continue;
-      if (r.status === 'pending') bucket.pending += 1;
-      else if (r.status === 'approved') bucket.approved += 1;
-      else if (r.status === 'denied') bucket.denied += 1;
-    }
-    return Array.from(buckets.values());
-  }, [filteredRequests, now]);
-
   const queriesLoading = resourcesLoading || requestsLoading;
-
-  async function handleLogout() {
-    try {
-      await logout();
-    } finally {
-      router.replace('/login');
-    }
-  }
 
   function renderStatusBadge(status: RequestEntry['status']) {
     switch (status) {
@@ -245,22 +208,86 @@ export default function DashboardPage() {
     }
   }
 
-  const freeEnvs = environments.filter((e) => e.isFreeNow);
-  const lockedEnvs = environments.filter((e) => !e.isFreeNow);
+  function formatMinutes(total: number) {
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h <= 0) return `${m}m`;
+    return `${h}h ${m}m`;
+  }
 
-  const recentBookings = useMemo(() => {
-    const list = bookings.slice(0, 5);
-    return list.map((b) => {
-      const status = (() => {
-        if (b.releasedAt || b.closedReason === 'released') return 'released';
-        const nowTs = now.getTime();
-        const endTs = b.endsAt ? new Date(b.endsAt).getTime() : 0;
-        if (endTs > 0 && endTs <= nowTs) return 'finished';
-        return b.status;
-      })();
-      return { ...b, status };
+  const envUsage7d = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    const map = new Map<string, { name: string; minutes: number }>();
+    const idToName = new Map(environments.map((e) => [e.id, e.name] as const));
+    for (const b of bookings) {
+      const start = b.startedAt ? new Date(b.startedAt) : null;
+      if (!start || start < cutoff) continue;
+      const name = idToName.get(b.envId) ?? b.envId;
+      const cur = map.get(name) ?? { name, minutes: 0 };
+      cur.minutes += b.durationMinutes ?? 0;
+      map.set(name, cur);
+    }
+    const arr = Array.from(map.values()).sort((a, b) => b.minutes - a.minutes);
+    const max = arr[0]?.minutes ?? 1;
+    return { rows: arr, max };
+  }, [bookings, environments]);
+
+  const weeklyMixed = useMemo(() => {
+    // Prepare 7 days buckets
+    const buckets: { key: string; day: string; duration: number; countsByEnv: Record<string, number>; minutesByEnv: Record<string, number> }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      buckets.push({ key: d.toISOString().slice(0, 10), day: d.toLocaleDateString(undefined, { weekday: 'short' }), duration: 0, countsByEnv: {}, minutesByEnv: {} });
+    }
+    // Build env id to name map
+    const envIdToName = new Map<string, string>();
+    for (const e of environments) envIdToName.set(e.id, e.name);
+    // Aggregate runs by startedAt day
+    for (const run of simRuns) {
+      const d = deriveRun(nowTick, run);
+      if (!d.startedAt || !d.finishedAt) continue;
+      const dayKey = new Date(d.startedAt).toISOString().slice(0, 10);
+      const bucket = buckets.find((b) => b.key === dayKey);
+      if (!bucket) continue;
+      bucket.duration += Math.max(0, Math.floor((d.finishedAt - d.startedAt) / 60000));
+      const envKey = run.envId ? envIdToName.get(run.envId) ?? run.envId : 'Unassigned';
+      bucket.countsByEnv[envKey] = (bucket.countsByEnv[envKey] ?? 0) + 1;
+      bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + Math.max(0, Math.floor((d.finishedAt - d.startedAt) / 60000));
+    }
+    // Flatten to chart rows with dynamic env keys
+    const envNames = Array.from(new Set(buckets.flatMap((b) => Object.keys(b.countsByEnv))));
+    const rows = buckets.map((b) => {
+      const row: any = { day: b.day, duration: b.duration, minutesByEnv: b.minutesByEnv };
+      for (const name of envNames) row[name] = b.countsByEnv[name] ?? 0;
+      return row;
     });
-  }, [bookings, now]);
+    return { rows, envNames };
+  }, [simRuns, environments, nowTick]);
+  
+  function WeeklyTooltip({ active, label, payload }: any) {
+    if (!active || !payload || payload.length === 0) return null;
+    const row = payload[0].payload as any;
+    return (
+      <div className="rounded border border-accend-border bg-white p-2 shadow-sm text-xs">
+        <div className="font-medium text-accend-ink mb-1">{label}</div>
+        <div className="flex flex-col gap-1">
+          {payload.map((p: any) => {
+            const envName = p.name?.replace(' (runs)', '') || p.dataKey;
+            const count = p.value ?? 0;
+            const mins = row?.minutesByEnv?.[envName] ?? 0;
+            return (
+              <div key={p.dataKey} className="flex items-center justify-between gap-4">
+                <span className="text-accend-ink">{envName}</span>
+                <span className="text-accend-muted">Test ran: {count} · Total Min: {mins}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -362,9 +389,23 @@ export default function DashboardPage() {
               <CardTitle className="text-accend-ink">Activity</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-full rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
-                Activity (coming soon)
-              </div>
+              {envUsage7d.rows.length === 0 ? (
+                <div className="text-sm text-accend-muted">No activity in the last 7 days.</div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {envUsage7d.rows.map((r) => (
+                    <div key={r.name} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-accend-ink truncate">{r.name}</span>
+                        <span className="text-xs text-accend-muted">{formatMinutes(r.minutes)}</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded bg-accend-border/50">
+                        <div className="h-1.5 rounded bg-accend-primary" style={{ width: `${Math.max(4, Math.floor((r.minutes / envUsage7d.max) * 100))}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -374,36 +415,23 @@ export default function DashboardPage() {
               <CardTitle className="text-accend-ink">Weekly stats</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-full min-h-[360px] rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
-                Weekly bar chart (coming soon)
+              <div className="h-full min-h-[360px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={weeklyMixed.rows} margin={{ left: 12, right: 12 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                    <Tooltip content={<WeeklyTooltip />} />
+                    {weeklyMixed.envNames.map((name, idx) => (
+                      <Bar key={name} dataKey={name} name={`${name} (runs)`} fill={["#328AA1","#0EA5E9","#10B981","#F59E0B","#6366F1"][idx % 5]} stackId="runs" />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
         </section>
 
-          <section className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle className="text-accend-ink">Avg wait to start</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-48 rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
-                  Semi-circle gauge (coming soon)
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle className="text-accend-ink">Top environments by usage (30d)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-48 rounded-md border border-accend-border bg-white flex items-center justify-center text-xs text-accend-muted">
-                  Usage bar chart (coming soon)
-                </div>
-              </CardContent>
-            </Card>
-          </section>
 
           <section>
             <Card>
