@@ -8,8 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import { AppSidebar } from '@/components/app-sidebar';
+import { NavUser } from '@/components/nav-user';
 import { RequestAccessDialog } from '@/components/requester/request-access-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -136,8 +135,10 @@ export default function DashboardPage() {
   }, [nowTick, activeBooking]);
   const latestDeploy = envDeploys.length > 0 ? envDeploys[0] : null;
   const latestDeployDerived = latestDeploy ? deriveDeploy(nowTick, latestDeploy) : null;
+  const deployBusy = latestDeployDerived ? (latestDeployDerived.status === 'queued' || latestDeployDerived.status === 'deploying') : false;
 
   const [redeployOpen, setRedeployOpen] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
   const [redeployBranch, setRedeployBranch] = useState('');
 
   const [dateRange, setDateRange] = useState<'all' | '7d' | '30d' | '90d'>('30d');
@@ -261,22 +262,20 @@ export default function DashboardPage() {
     });
   }, [bookings, now]);
 
-  const [releaseOpen, setReleaseOpen] = useState(false);
-
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <main className="min-h-screen flex flex-col gap-6 p-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-semibold">Dashboard</h1>
-            <div className="flex items-center gap-3">
-              {user ? (
-                <span className="text-sm text-muted-foreground">{user.name}</span>
-              ) : null}
-              <Button variant="outline" onClick={handleLogout}>Sign out</Button>
-            </div>
-          </div>
+    <>
+      <div className="h-14 border-b flex items-center justify-between px-6">
+        <div className="text-base font-semibold">Accend</div>
+        <div className="flex items-center gap-3">
+          <RequestAccessDialog />
+          <NavUser />
+        </div>
+      </div>
+      <main className="min-h-screen flex flex-col gap-6 p-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <div />
+        </div>
 
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {[0,1,2,3].map((i) => (
@@ -299,7 +298,7 @@ export default function DashboardPage() {
             ))}
           </section>
 
-          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card>
               <CardHeader>
                 <CardTitle>Active Environment</CardTitle>
@@ -317,14 +316,23 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between">
                           <div>
                             <div className="text-xs">Branch: {latestDeploy.branch}</div>
-                            <div className="text-xs">Status: {latestDeployDerived.status}</div>
+                            <div className="text-xs flex items-center gap-2">Status:
+                              <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] capitalize ${latestDeployDerived.status === 'deployed' ? 'bg-emerald-100 text-emerald-700' : latestDeployDerived.status === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>
+                                {latestDeployDerived.status}
+                              </span>
+                            </div>
                           </div>
                           <div className="text-xs">{fmtTime(latestDeployDerived.finishedAt)}</div>
                         </div>
+                        {(latestDeployDerived.status === 'queued' || latestDeployDerived.status === 'deploying') ? (
+                          <div className="mt-2 h-1 w-full rounded bg-muted">
+                            <div className="h-1 rounded bg-blue-500" style={{ width: `${Math.max(2, Math.min(98, Math.floor((latestDeployDerived.progress || 0) * 100)))}%` }} />
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" disabled={releasing} onClick={() => setReleaseOpen(true)}>Release</Button>
+                      <Button size="sm" variant="outline" disabled={releasing || deployBusy} onClick={() => setReleaseOpen(true)}>Release</Button>
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 15 > 60} onClick={async () => {
                         await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 15 } });
                       }}>+15m</Button>
@@ -334,8 +342,11 @@ export default function DashboardPage() {
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 60 > 60} onClick={async () => {
                         await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 60 } });
                       }}>+60m</Button>
-                      <Button size="sm" variant="secondary" onClick={() => setRedeployOpen(true)}>Redeploy</Button>
+                      <Button size="sm" variant="secondary" disabled={deployBusy} onClick={() => setRedeployOpen(true)}>Redeploy</Button>
                     </div>
+                    {deployBusy ? (
+                      <div className="text-xs text-muted-foreground">Redeploy in progress… actions temporarily limited</div>
+                    ) : null}
                   </div>
                 )}
               </CardContent>
@@ -365,9 +376,7 @@ export default function DashboardPage() {
                 )}
               </CardContent>
             </Card>
-          </section>
 
-          <section>
             <Card>
               <CardHeader>
                 <CardTitle>Recent Test Runs</CardTitle>
@@ -378,14 +387,21 @@ export default function DashboardPage() {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {recentSimRuns.map(({ rec, d }) => (
-                      <div key={rec.id} className="flex items-center justify-between rounded border p-3">
-                        <div>
-                          <div className="text-sm font-medium">{rec.branch} · {rec.suite}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {fmtTime(d.startedAt)} → {fmtTime(d.finishedAt)}
+                      <div key={rec.id} className="rounded border p-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-sm font-medium">{rec.branch} · {rec.suite}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {fmtTime(d.startedAt)} → {fmtTime(d.finishedAt)}
+                            </div>
                           </div>
+                          <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] capitalize ${d.status === 'passed' ? 'bg-emerald-100 text-emerald-700' : d.status === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>{d.status}</span>
                         </div>
-                        <div className="text-xs capitalize">{d.status}</div>
+                        {(d.status === 'queued' || d.status === 'running') ? (
+                          <div className="mt-2 h-1 w-full rounded bg-muted">
+                            <div className="h-1 rounded bg-blue-500" style={{ width: `${Math.max(2, Math.min(98, Math.floor((d.progress || 0) * 100)))}%` }} />
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -397,7 +413,7 @@ export default function DashboardPage() {
           <section>
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-lg font-semibold">My Requests</h2>
-              <RequestAccessDialog />
+              <div />
             </div>
 
             <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
@@ -542,29 +558,7 @@ export default function DashboardPage() {
             </div>
           </section>
         </main>
-      </SidebarInset>
-
-      <AlertDialog open={releaseOpen} onOpenChange={setReleaseOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Release environment?</AlertDialogTitle>
-            <AlertDialogDescription>This will end your current booking immediately.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (!activeBooking) return;
-                await releaseEnvBooking({ variables: { bookingId: activeBooking.id } });
-                setReleaseOpen(false);
-              }}
-            >
-              Release
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
+      
       <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
         <DialogContent>
           <DialogHeader>
@@ -601,6 +595,27 @@ export default function DashboardPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </SidebarProvider>
+
+      <AlertDialog open={releaseOpen} onOpenChange={setReleaseOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Release environment?</AlertDialogTitle>
+            <AlertDialogDescription>This will end your current booking immediately.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!activeBooking) return;
+                await releaseEnvBooking({ variables: { bookingId: activeBooking.id } });
+                setReleaseOpen(false);
+              }}
+            >
+              Release
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 } 
