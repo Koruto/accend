@@ -264,17 +264,17 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="h-14 border-b flex items-center justify-between px-6">
-        <div className="text-base font-semibold">Accend</div>
-        <div className="flex items-center gap-3">
-          <RequestAccessDialog />
-          <NavUser />
-        </div>
-      </div>
-      <main className="min-h-screen flex flex-col gap-6 p-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <div />
+      <main className="min-h-screen flex flex-col gap-6 p-6 mx-6 my-8 rounded-xl bg-accend-shell">
+        <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-2">
+            <div className="text-2xl font-semibold tracking-tight text-black">Welcome back{user ? `, ${user.name.split(' ')[0]}` : ''}</div>
+            <div className="text-sm text-accend-muted">Here’s a quick snapshot of your access and environments</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="cursor-pointer"><RequestAccessDialog /></div>
+            <div className="h-8 w-px bg-accend-ink" />
+            <div className="rounded-md border border-accend-border bg-white cursor-pointer"><NavUser /></div>
+          </div>
         </div>
 
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">

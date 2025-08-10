@@ -41,12 +41,11 @@ export function NavUser() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md p-2 text-left outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-          <Avatar className="size-8">
+          <Avatar className="size-6">
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-sm font-medium">{user?.name ?? "User"}</span>
-            <span className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</span>
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" sideOffset={8} className="w-56">

@@ -90,7 +90,7 @@ export function RequestAccessDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>Request Access</Button>
+        <Button size="lg" className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-80 cursor-pointer">Request Access</Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
