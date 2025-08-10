@@ -50,4 +50,91 @@ export const CREATE_REQUEST_MUTATION = gql`
       decisionNote
     }
   }
+`;
+
+// Environments & Bookings
+export const ENVIRONMENTS_QUERY = gql`
+  query Environments {
+    environments { id name bufferMinutes isFreeNow freeAt }
+  }
+`;
+
+export const ACTIVE_BOOKING_ME_QUERY = gql`
+  query ActiveBookingMe {
+    activeBookingMe {
+      id
+      envId
+      userId
+      status
+      createdAt
+      justification
+      startedAt
+      endsAt
+      releasedAt
+      closedReason
+      durationMinutes
+      extensionMinutesTotal
+    }
+  }
+`;
+
+export const BOOKINGS_ME_QUERY = gql`
+  query BookingsMe {
+    bookingsMe {
+      id
+      envId
+      userId
+      status
+      createdAt
+      justification
+      startedAt
+      endsAt
+      releasedAt
+      closedReason
+      durationMinutes
+      extensionMinutesTotal
+    }
+  }
+`;
+
+export const CREATE_ENVIRONMENT_BOOKING = gql`
+  mutation CreateEnvironmentBooking($envId: ID!, $durationMinutes: Int!, $justification: String!) {
+    createEnvironmentBooking(envId: $envId, durationMinutes: $durationMinutes, justification: $justification) {
+      id
+      envId
+      userId
+      status
+      createdAt
+      justification
+      startedAt
+      endsAt
+      durationMinutes
+      extensionMinutesTotal
+    }
+  }
+`;
+
+export const EXTEND_ENVIRONMENT_BOOKING = gql`
+  mutation ExtendEnvironmentBooking($bookingId: ID!, $addMinutes: Int!) {
+    extendEnvironmentBooking(bookingId: $bookingId, addMinutes: $addMinutes) {
+      id
+      envId
+      endsAt
+      extensionMinutesTotal
+      status
+    }
+  }
+`;
+
+export const RELEASE_ENVIRONMENT_BOOKING = gql`
+  mutation ReleaseEnvironmentBooking($bookingId: ID!) {
+    releaseEnvironmentBooking(bookingId: $bookingId) {
+      id
+      envId
+      status
+      releasedAt
+      endsAt
+      closedReason
+    }
+  }
 `; 

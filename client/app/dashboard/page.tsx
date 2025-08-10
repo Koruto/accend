@@ -13,10 +13,28 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { RequestAccessDialog } from '@/components/requester/request-access-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { useQuery } from '@apollo/client';
-import { RESOURCES_QUERY, MY_REQUESTS_QUERY } from '@/lib/gql';
+import { useMutation, useQuery } from '@apollo/client';
+import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING } from '@/lib/gql';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
+
+interface EnvironmentEntry {
+  id: string;
+  name: string;
+  bufferMinutes: number;
+  isFreeNow: boolean;
+  freeAt?: string | null;
+}
+
+interface ActiveBookingEntry {
+  id: string;
+  envId: string;
+  status: string;
+  startedAt?: string | null;
+  endsAt?: string | null;
+  durationMinutes: number;
+  extensionMinutesTotal?: number | null;
+}
 
 interface ResourceEntry {
   id: string;
@@ -49,6 +67,22 @@ export default function DashboardPage() {
 
   const { data: resourcesData, loading: resourcesLoading } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
   const { data: requestsData, loading: requestsLoading } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
+
+  const { data: envsData, loading: envsLoading, refetch: refetchEnvs } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: activeBookingData, refetch: refetchActive } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache' });
+
+  const [createEnvBooking, { loading: creatingBooking }] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
+    onCompleted: () => { refetchEnvs(); refetchActive(); },
+  });
+  const [extendEnvBooking, { loading: extending }] = useMutation(EXTEND_ENVIRONMENT_BOOKING, {
+    onCompleted: () => { refetchEnvs(); refetchActive(); },
+  });
+  const [releaseEnvBooking, { loading: releasing }] = useMutation(RELEASE_ENVIRONMENT_BOOKING, {
+    onCompleted: () => { refetchEnvs(); refetchActive(); },
+  });
+
+  const environments = envsData?.environments ?? [];
+  const activeBooking = activeBookingData?.activeBookingMe ?? null;
 
   const resources = resourcesData?.resources ?? [];
   const requests = requestsData?.myRequests ?? [];
@@ -177,6 +211,9 @@ export default function DashboardPage() {
     }
   }
 
+  const freeEnvs = environments.filter((e) => e.isFreeNow);
+  const lockedEnvs = environments.filter((e) => !e.isFreeNow);
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -211,6 +248,94 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             ))}
+          </section>
+
+          {/* Environments section */}
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Environments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {envsLoading ? (
+                  <Skeleton className="h-32 w-full" />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-sm font-medium mb-2">Free now</div>
+                      <div className="flex flex-col gap-2">
+                        {freeEnvs.length === 0 ? (
+                          <div className="text-sm text-muted-foreground">No environments free right now.</div>
+                        ) : freeEnvs.map((env) => (
+                          <div key={env.id} className="flex items-center justify-between rounded border p-3">
+                            <div>
+                              <div className="text-sm font-medium">{env.name}</div>
+                              <div className="text-xs text-muted-foreground">Buffer {env.bufferMinutes}m</div>
+                            </div>
+                            <Button
+                              size="sm"
+                              disabled={!!activeBooking || creatingBooking}
+                              onClick={async () => {
+                                await createEnvBooking({ variables: { envId: env.id, durationMinutes: 60, justification: 'Testing window' } });
+                              }}
+                            >
+                              {activeBooking ? 'Booked' : 'Book'}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium mb-2">Locked</div>
+                      <div className="flex flex-col gap-2">
+                        {lockedEnvs.length === 0 ? (
+                          <div className="text-sm text-muted-foreground">No locked environments.</div>
+                        ) : lockedEnvs.map((env) => (
+                          <div key={env.id} className="flex items-center justify-between rounded border p-3">
+                            <div>
+                              <div className="text-sm font-medium">{env.name}</div>
+                              <div className="text-xs text-muted-foreground">Free at {env.freeAt ? new Date(env.freeAt).toLocaleTimeString() : '—'} (+{env.bufferMinutes}m)</div>
+                            </div>
+                            <Button size="sm" variant="outline" disabled>
+                              Locked
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Active Environment</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!activeBooking ? (
+                  <div className="text-sm text-muted-foreground">You have no active environment booking.</div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="text-sm">Env: {environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId}</div>
+                    <div className="text-sm">Ends at: {activeBooking.endsAt ? new Date(activeBooking.endsAt).toLocaleTimeString() : '—'}</div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" disabled={releasing} onClick={async () => {
+                        await releaseEnvBooking({ variables: { bookingId: activeBooking.id } });
+                      }}>Release</Button>
+                      <Button size="sm" disabled={extending} onClick={async () => {
+                        await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 15 } });
+                      }}>+15m</Button>
+                      <Button size="sm" disabled={extending} onClick={async () => {
+                        await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 30 } });
+                      }}>+30m</Button>
+                      <Button size="sm" disabled={extending} onClick={async () => {
+                        await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 60 } });
+                      }}>+60m</Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </section>
 
           <section>
