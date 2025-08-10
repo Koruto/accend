@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { useRouter } from 'next/navigation';
 import { logout, me } from '@/lib/auth';
 import type { PublicUser } from '@/types/auth';
@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { useQuery } from '@apollo/client';
 import { RESOURCES_QUERY, MY_REQUESTS_QUERY } from '@/lib/gql';
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface ResourceEntry {
   id: string;
@@ -45,8 +47,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { data: resourcesData } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
-  const { data: requestsData, loading: requestsLoading } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: resourcesData, loading: resourcesLoading } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
+  const { data: requestsData, loading: requestsLoading } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
 
   const resources = resourcesData?.resources ?? [];
   const requests = requestsData?.myRequests ?? [];
@@ -75,8 +77,14 @@ export default function DashboardPage() {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<RequestEntry['status']>>(new Set());
   const [selectedType, setSelectedType] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
+  const deferredKeyword = useDeferredValue(keyword);
 
   const uniqueTypes = useMemo(() => Array.from(new Set(requests.map((r) => r.resourceType))), [requests]);
+  const resourcesById = useMemo(() => {
+    const map = new Map<string, ResourceEntry>();
+    for (const r of resources) map.set(r.id, r);
+    return map;
+  }, [resources]);
 
   function toggleStatus(s: RequestEntry['status']) {
     setSelectedStatuses((prev) => {
@@ -94,21 +102,21 @@ export default function DashboardPage() {
     setKeyword('');
   }
 
-  const filteredRequests = useMemo(() => {
-    let start: Date | null = null;
-    if (dateRange !== 'all') {
-      const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
-      start = new Date(now.getTime() - days * 24 * 3600 * 1000);
-    }
-    const kw = keyword.trim().toLowerCase();
+  const rangeStart = useMemo(() => {
+    if (dateRange === 'all') return null as Date | null;
+    const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
+    return new Date(now.getTime() - days * 24 * 3600 * 1000);
+  }, [dateRange, now]);
 
+  const filteredRequests = useMemo(() => {
+    const kw = deferredKeyword.trim().toLowerCase();
     return requests.filter((r) => {
       const createdAt = new Date(r.createdAt);
-      if (start && createdAt < start) return false;
+      if (rangeStart && createdAt < rangeStart) return false;
       if (selectedStatuses.size > 0 && !selectedStatuses.has(r.status)) return false;
       if (selectedType !== 'all' && r.resourceType !== selectedType) return false;
       if (kw) {
-        const res = resources.find((x) => x.id === r.resourceId);
+        const res = resourcesById.get(r.resourceId);
         const resourceName = res?.name ?? '';
         const hay = [resourceName, r.justification, r.approverName || '', r.decisionNote || '']
           .join(' ')
@@ -117,7 +125,7 @@ export default function DashboardPage() {
       }
       return true;
     });
-  }, [requests, resources, dateRange, selectedStatuses, selectedType, keyword, now]);
+  }, [requests, resourcesById, rangeStart, selectedStatuses, selectedType, deferredKeyword]);
 
   const metrics = useMemo(() => {
     const approvedActive = filteredRequests.filter((r) => r.status === 'approved' && (!r.expiresAt || new Date(r.expiresAt) > now)).length;
@@ -126,6 +134,27 @@ export default function DashboardPage() {
     const activeLocks = filteredRequests.filter((r) => r.resourceType === 'deployment_env_lock' && r.status === 'approved' && r.expiresAt && new Date(r.expiresAt) > now).length;
     return { approvedActive, pending, expiring7d, activeLocks };
   }, [filteredRequests, now]);
+
+  const timeSeries30d = useMemo(() => {
+    const days = 30;
+    const buckets = new Map<string, { date: string; pending: number; approved: number; denied: number }>();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 3600 * 1000);
+      const key = d.toISOString().slice(0, 10);
+      buckets.set(key, { date: key, pending: 0, approved: 0, denied: 0 });
+    }
+    for (const r of filteredRequests) {
+      const key = new Date(r.createdAt).toISOString().slice(0, 10);
+      const bucket = buckets.get(key);
+      if (!bucket) continue;
+      if (r.status === 'pending') bucket.pending += 1;
+      else if (r.status === 'approved') bucket.approved += 1;
+      else if (r.status === 'denied') bucket.denied += 1;
+    }
+    return Array.from(buckets.values());
+  }, [filteredRequests, now]);
+
+  const queriesLoading = resourcesLoading || requestsLoading;
 
   async function handleLogout() {
     try {
@@ -164,38 +193,24 @@ export default function DashboardPage() {
           </div>
 
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Active Accesses</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-semibold">{metrics.approvedActive}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Pending Requests</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-semibold">{metrics.pending}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Expiring in 7 days</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-semibold">{metrics.expiring7d}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Active Deployment Locks</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-semibold">{metrics.activeLocks}</p>
-              </CardContent>
-            </Card>
+            {[0,1,2,3].map((i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <CardTitle>
+                    {i === 0 ? 'Active Accesses' : i === 1 ? 'Pending Requests' : i === 2 ? 'Expiring in 7 days' : 'Active Deployment Locks'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {queriesLoading ? (
+                    <Skeleton className="h-8 w-16" />
+                  ) : (
+                    <p className="text-3xl font-semibold">
+                      {i === 0 ? metrics.approvedActive : i === 1 ? metrics.pending : i === 2 ? metrics.expiring7d : metrics.activeLocks}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
           </section>
 
           <section>
@@ -266,6 +281,29 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* Chart */}
+            <div className="rounded-xl border p-4 mb-4">
+              <div className="mb-2 text-sm font-medium">Requests (last 30 days)</div>
+              <div className="h-64 w-full">
+                {queriesLoading ? (
+                  <Skeleton className="h-full w-full" />
+                ) : (
+                  <ResponsiveContainer>
+                    <BarChart data={timeSeries30d} margin={{ left: 12, right: 12 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="pending" stackId="a" fill="#f59e0b" name="Pending" />
+                      <Bar dataKey="approved" stackId="a" fill="#10b981" name="Approved" />
+                      <Bar dataKey="denied" stackId="a" fill="#ef4444" name="Denied" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
             <div className="rounded-xl border">
               <Table>
                 <TableHeader>
@@ -281,10 +319,19 @@ export default function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {requestsLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Loading…</TableCell>
-                    </TableRow>
+                  {queriesLoading ? (
+                    Array.from({ length: 5 }).map((_, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-72" /></TableCell>
+                      </TableRow>
+                    ))
                   ) : filteredRequests.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
@@ -293,7 +340,7 @@ export default function DashboardPage() {
                     </TableRow>
                   ) : (
                     filteredRequests.map((r) => {
-                      const res = resources.find((x) => x.id === r.resourceId);
+                      const res = resourcesById.get(r.resourceId);
                       return (
                         <TableRow key={r.id}>
                           <TableCell className="whitespace-nowrap">{res?.name ?? r.resourceId}</TableCell>
