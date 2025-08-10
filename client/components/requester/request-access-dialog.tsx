@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation, useQuery } from "@apollo/client";
-import { ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, ENVIRONMENTS_QUERY, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING } from "@/lib/gql";
+import { ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, ENVIRONMENTS_QUERY, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BRANCH_REFS_QUERY, CREATE_REQUEST_MUTATION } from "@/lib/gql";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -31,10 +31,11 @@ interface ActiveBookingEntry {
 
 export function RequestAccessDialog() {
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<"select" | "env">("select");
+  const [step, setStep] = useState<"select" | "env" | "run">("select");
 
   const { data: envsData, loading: envsLoading, refetch: refetchEnvs } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache', skip: !open });
   const { data: activeData, refetch: refetchActive } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache', skip: !open });
+  const { data: branchesData } = useQuery<{ branchRefs: string[] }>(BRANCH_REFS_QUERY, { variables: { projectKey: 'web-app' }, skip: !open });
 
   const [createBooking, { loading: creating, error: createErr }] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
     onCompleted: () => { refetchEnvs(); refetchActive(); },
@@ -45,16 +46,26 @@ export function RequestAccessDialog() {
   const [releaseBooking] = useMutation(RELEASE_ENVIRONMENT_BOOKING, {
     onCompleted: () => { refetchEnvs(); refetchActive(); },
   });
+  const [createRequest] = useMutation(CREATE_REQUEST_MUTATION);
 
   const environments = envsData?.environments ?? [];
   const active = activeData?.activeBookingMe ?? null;
+  const branches = branchesData?.branchRefs ?? [];
 
   const [duration, setDuration] = useState<string>('60');
+  const [branch, setBranch] = useState<string>('');
+  const [suite, setSuite] = useState<'smoke' | 'regression'>('smoke');
+  const [notes, setNotes] = useState<string>('');
+  const [autoBook, setAutoBook] = useState<boolean>(true);
 
   useEffect(() => {
     if (!open) {
       setStep('select');
       setDuration('60');
+      setBranch('');
+      setSuite('smoke');
+      setNotes('');
+      setAutoBook(true);
     }
   }, [open]);
 
@@ -99,6 +110,12 @@ export function RequestAccessDialog() {
                 <button className={`text-xs ${step === 'env' ? '' : 'underline'} cursor-pointer`} onClick={() => setStep('env')}>Environment booking</button>
               </BreadcrumbLink>
             </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <button className={`text-xs ${step === 'run' ? '' : 'underline'} cursor-pointer`} onClick={() => setStep('run')}>Automated test run</button>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
 
@@ -108,12 +125,20 @@ export function RequestAccessDialog() {
               <div className="text-sm font-medium">Environment booking</div>
               <div className="text-xs text-muted-foreground">Reserve Staging/Test for focused testing with a short window</div>
             </button>
+            <button className="rounded border p-4 text-left hover:bg-muted" onClick={() => setStep('run')}>
+              <div className="text-sm font-medium">Automated test run</div>
+              <div className="text-xs text-muted-foreground">Trigger a simulated Playwright suite on a branch</div>
+            </button>
             <button className="rounded border p-4 text-left opacity-50 cursor-not-allowed">
               <div className="text-sm font-medium">Feature flags (soon)</div>
               <div className="text-xs text-muted-foreground">Toggle flags for repro/validation</div>
             </button>
+            <button className="rounded border p-4 text-left opacity-50 cursor-not-allowed">
+              <div className="text-sm font-medium">Test accounts (soon)</div>
+              <div className="text-xs text-muted-foreground">Request seeded accounts/data bundles</div>
+            </button>
           </div>
-        ) : (
+        ) : step === 'env' ? (
           <div className="grid grid-cols-1 gap-4">
             <div>
               {active ? (
@@ -182,6 +207,80 @@ export function RequestAccessDialog() {
               ) : null}
             </div>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-3">
+              {active ? (
+                <Alert>
+                  <AlertTitle>Using active environment</AlertTitle>
+                  <AlertDescription className="text-xs">Env is locked to this run: {active.envId}</AlertDescription>
+                </Alert>
+              ) : (
+                <div className="flex items-center justify-between rounded border p-3">
+                  <div className="text-sm">
+                    No active booking. Auto-book environment for this run
+                  </div>
+                  <input type="checkbox" className="h-4 w-4" checked={autoBook} onChange={(e) => setAutoBook(e.target.checked)} />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Branch</label>
+                  <Select value={branch} onValueChange={setBranch}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((b) => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Suite</label>
+                  <Select value={suite} onValueChange={(v) => setSuite(v as 'smoke' | 'regression')}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select suite" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['smoke','regression'].map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Notes</label>
+                <textarea className="w-full rounded border p-2 text-sm min-h-20" value={notes} onChange={(e) => setNotes(e.target.value)} />
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="outline" onClick={() => setStep('select')}>Back</Button>
+                <Button
+                  disabled={!branch}
+                  onClick={async () => {
+                    // Create a generic request for simulated run
+                    const payload = { branch, suite, notes, envId: active?.envId ?? null, autoBook };
+                    const res = await createRequest({ variables: { input: { resourceId: 'res_test_run', justification: JSON.stringify(payload) } } });
+                    const requestId = res?.data?.createRequest?.id as string | undefined;
+                    if (requestId) {
+                      try {
+                        const mod = await import('@/lib/sim');
+                        mod.upsertRun({ id: requestId, userId: null, envId: active?.envId ?? null, branch, suite, notes, createdAt: Date.now() });
+                      } catch {}
+                    }
+                    setOpen(false);
+                  }}
+                >
+                  Start run
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
 
         <DialogFooter>
@@ -190,6 +289,8 @@ export function RequestAccessDialog() {
               <Button variant="outline" onClick={() => setStep('select')}>Back</Button>
               <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
             </>
+          ) : step === 'run' ? (
+            <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
           ) : (
             <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
           )}

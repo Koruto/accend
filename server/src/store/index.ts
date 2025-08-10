@@ -43,6 +43,26 @@ export const resources: ResourceRecord[] = [
     allowedRequesterRoles: ['developer', 'qa'],
     details: { engine: 'postgres', dbName: 'app_staging' },
   },
+  {
+    id: 'res_test_run',
+    name: 'Automated Test Run',
+    type: 'test_run_request',
+    riskLevel: 'low',
+    approverRole: 'admin',
+    tags: ['tests'],
+    allowedRequesterRoles: ['developer', 'qa'],
+    details: { suites: ['smoke', 'regression'] },
+  },
+  {
+    id: 'res_staging_build',
+    name: 'Staging Redeploy',
+    type: 'staging_build_request',
+    riskLevel: 'medium',
+    approverRole: 'admin',
+    tags: ['deploy', 'staging'],
+    allowedRequesterRoles: ['developer', 'qa'],
+    details: { target: 'staging' },
+  },
 ];
 
 export const requestsByUserId = new Map<string, RequestRecord[]>();

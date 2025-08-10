@@ -14,10 +14,12 @@ import { RequestAccessDialog } from '@/components/requester/request-access-dialo
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useMutation, useQuery } from '@apollo/client';
-import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY } from '@/lib/gql';
+import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY, BRANCH_REFS_QUERY } from '@/lib/gql';
+import { listRuns, deriveRun, listDeploys, deriveDeploy, addDeploy, formatTime as fmtTime } from '@/lib/sim';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface EnvironmentEntry {
   id: string;
@@ -84,6 +86,7 @@ export default function DashboardPage() {
   const { data: envsData } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache' });
   const { data: activeBookingData } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache' });
   const { data: bookingsData } = useQuery<{ bookingsMe: BookingEntry[] }>(BOOKINGS_ME_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: branchRefsData } = useQuery<{ branchRefs: string[] }>(BRANCH_REFS_QUERY, { variables: { projectKey: 'web-app' } });
 
   const [createEnvBooking, { loading: creatingBooking }] = useMutation(CREATE_ENVIRONMENT_BOOKING);
   const [extendEnvBooking, { loading: extending }] = useMutation(EXTEND_ENVIRONMENT_BOOKING);
@@ -92,6 +95,7 @@ export default function DashboardPage() {
   const environments = envsData?.environments ?? [];
   const activeBooking = activeBookingData?.activeBookingMe ?? null;
   const bookings = bookingsData?.bookingsMe ?? [];
+  const branches = branchRefsData?.branchRefs ?? [];
 
   const resources = resourcesData?.resources ?? [];
   const requests = requestsData?.myRequests ?? [];
@@ -115,6 +119,26 @@ export default function DashboardPage() {
   }, []);
 
   const now = useMemo(() => new Date(), []);
+
+  // Ticker for simulated items
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const simRuns = useMemo(() => listRuns(), [nowTick]);
+  const recentSimRuns = useMemo(() => simRuns.slice(0, 5).map((r) => ({ rec: r, d: deriveRun(nowTick, r) })), [simRuns, nowTick]);
+
+  const envDeploys = useMemo(() => {
+    if (!activeBooking) return [] as ReturnType<typeof listDeploys>;
+    return listDeploys().filter((d) => d.envId === activeBooking.envId).sort((a, b) => b.createdAt - a.createdAt);
+  }, [nowTick, activeBooking]);
+  const latestDeploy = envDeploys.length > 0 ? envDeploys[0] : null;
+  const latestDeployDerived = latestDeploy ? deriveDeploy(nowTick, latestDeploy) : null;
+
+  const [redeployOpen, setRedeployOpen] = useState(false);
+  const [redeployBranch, setRedeployBranch] = useState('');
 
   const [dateRange, setDateRange] = useState<'all' | '7d' | '30d' | '90d'>('30d');
   const [selectedStatuses, setSelectedStatuses] = useState<Set<RequestEntry['status']>>(new Set());
@@ -287,6 +311,18 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     <div className="text-sm">Env: {environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId}</div>
                     <div className="text-sm">Ends at: {activeBooking.endsAt ? new Date(activeBooking.endsAt).toLocaleTimeString() : '—'} ({/* countdown removed for brevity */})</div>
+                    {latestDeploy && latestDeployDerived ? (
+                      <div className="rounded border p-3 text-sm">
+                        <div className="font-medium mb-1">Last redeploy</div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-xs">Branch: {latestDeploy.branch}</div>
+                            <div className="text-xs">Status: {latestDeployDerived.status}</div>
+                          </div>
+                          <div className="text-xs">{fmtTime(latestDeployDerived.finishedAt)}</div>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" disabled={releasing} onClick={() => setReleaseOpen(true)}>Release</Button>
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 15 > 60} onClick={async () => {
@@ -298,6 +334,7 @@ export default function DashboardPage() {
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 60 > 60} onClick={async () => {
                         await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 60 } });
                       }}>+60m</Button>
+                      <Button size="sm" variant="secondary" onClick={() => setRedeployOpen(true)}>Redeploy</Button>
                     </div>
                   </div>
                 )}
@@ -322,6 +359,33 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         <div className="text-xs capitalize">{b.status}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          <section>
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Test Runs</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {recentSimRuns.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No simulated runs yet.</div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {recentSimRuns.map(({ rec, d }) => (
+                      <div key={rec.id} className="flex items-center justify-between rounded border p-3">
+                        <div>
+                          <div className="text-sm font-medium">{rec.branch} · {rec.suite}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtTime(d.startedAt)} → {fmtTime(d.finishedAt)}
+                          </div>
+                        </div>
+                        <div className="text-xs capitalize">{d.status}</div>
                       </div>
                     ))}
                   </div>
@@ -500,6 +564,43 @@ export default function DashboardPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Redeploy to environment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Branch</label>
+              <Select value={redeployBranch} onValueChange={setRedeployBranch}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map((b) => (
+                    <SelectItem key={b} value={b}>{b}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRedeployOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!redeployBranch || !activeBooking}
+              onClick={() => {
+                if (!activeBooking || !redeployBranch) return;
+                const id = `${activeBooking.id}:${Date.now()}`;
+                addDeploy({ id, envId: activeBooking.envId, branch: redeployBranch, createdAt: Date.now() });
+                setRedeployOpen(false);
+              }}
+            >
+              Start redeploy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   );
 } 

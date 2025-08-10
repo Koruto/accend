@@ -12,7 +12,9 @@ export type ResourceType =
   | 'github_repo_permission'
   | 'cicd_bypass'
   | 'monitoring_edit'
-  | 'logging_query';
+  | 'logging_query'
+  | 'test_run_request'
+  | 'staging_build_request';
 
 export type RiskLevel = 'low' | 'medium' | 'high';
 

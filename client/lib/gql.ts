@@ -137,4 +137,10 @@ export const RELEASE_ENVIRONMENT_BOOKING = gql`
       closedReason
     }
   }
+`;
+
+export const BRANCH_REFS_QUERY = gql`
+  query BranchRefs($projectKey: String) {
+    branchRefs(projectKey: $projectKey)
+  }
 `; 

@@ -13,6 +13,8 @@ export const typeDefs = `
     cicd_bypass
     monitoring_edit
     logging_query
+    test_run_request
+    staging_build_request
   }
   enum RequestStatus { pending approved denied expired }
   enum RiskLevel { low medium high }
@@ -93,16 +95,18 @@ export const typeDefs = `
 
   input CreateRequestInput { resourceId: ID!, justification: String!, durationHours: Int }
 
-  type Query {
-    viewer: User
-    resources: [Resource!]!
-    myRequests(filter: RequestFilter): [Request!]!
-    metricsMe: MetricsMe!
-
-    environments: [Environment!]!
-    activeBookingMe: Booking
-    bookingsMe: [Booking!]!
-  }
+     type Query {
+     viewer: User
+     resources: [Resource!]!
+     myRequests(filter: RequestFilter): [Request!]!
+     metricsMe: MetricsMe!
+ 
+     environments: [Environment!]!
+     activeBookingMe: Booking
+     bookingsMe: [Booking!]!
+ 
+     branchRefs(projectKey: String): [String!]!
+   }
 
   type Mutation {
     signup(input: SignupInput!): AuthPayload!

@@ -58,19 +58,21 @@ export const resolvers = (cookieSecure: boolean) => ({
     activeBookingMe: async (_: unknown, __: unknown, ctx: any) => {
       const user = ctx.user;
       if (!user) return null;
-      const b = getUserActiveBooking(user.id, new Date());
-      return b ?? null;
+      const booking = getUserActiveBooking(user.id, new Date());
+      return booking ?? null;
     },
     bookingsMe: async (_: unknown, __: unknown, ctx: any) => {
       const user = ctx.user;
       if (!user) return [];
-      const rows: any[] = [];
-      for (const [, list] of bookingsByEnvId) {
-        rows.push(...list.filter((b) => b.userId === user.id));
-      }
-      // Return most recent first
-      rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-      return rows;
+      const list: any[] = [];
+      for (const [, bookings] of bookingsByEnvId) list.push(...bookings.filter((b) => b.userId === user.id));
+      return list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    },
+
+    branchRefs: async (_: unknown, args: { projectKey?: string | null }, _ctx: any) => {
+      const project = (args.projectKey || 'default').toLowerCase();
+      if (project === 'web-app') return ['main', 'develop', 'release/2025-08-15', 'feature/checkout-refactor'];
+      return ['main', 'develop', 'hotfix/login', 'feature/test-run-mvp'];
     },
   },
   Mutation: {
