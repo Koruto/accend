@@ -17,6 +17,8 @@ export const typeDefs = `
   enum RequestStatus { pending approved denied expired }
   enum RiskLevel { low medium high }
 
+  enum BookingStatus { pending approved active finished expired released denied }
+
   type User { id: ID! name: String! email: String! role: UserRole! accessLevel: Int! }
 
   type Resource {
@@ -29,20 +31,27 @@ export const typeDefs = `
     allowedRequesterRoles: [UserRole!]!
   }
 
-  type Request {
+  type Environment {
     id: ID!
+    name: String!
+    bufferMinutes: Int!
+    isFreeNow: Boolean!
+    freeAt: String
+  }
+
+  type Booking {
+    id: ID!
+    envId: ID!
     userId: ID!
-    resourceId: ID!
-    resourceType: ResourceType!
-    status: RequestStatus!
-    justification: String!
+    status: BookingStatus!
     createdAt: String!
-    durationHours: Int
-    approvedAt: String
-    expiresAt: String
-    approverId: ID
-    approverName: String
-    decisionNote: String
+    justification: String!
+    startedAt: String
+    endsAt: String
+    releasedAt: String
+    closedReason: String
+    durationMinutes: Int!
+    extensionMinutesTotal: Int
   }
 
   type MetricsMe {
@@ -73,6 +82,10 @@ export const typeDefs = `
     resources: [Resource!]!
     myRequests(filter: RequestFilter): [Request!]!
     metricsMe: MetricsMe!
+
+    environments: [Environment!]!
+    activeBookingMe: Booking
+    bookingsMe: [Booking!]!
   }
 
   type Mutation {
@@ -80,6 +93,10 @@ export const typeDefs = `
     login(input: LoginInput!): AuthPayload!
     logout: Boolean!
     createRequest(input: CreateRequestInput!): Request!
+
+    createEnvironmentBooking(envId: ID!, durationMinutes: Int!, justification: String!): Booking!
+    extendEnvironmentBooking(bookingId: ID!, addMinutes: Int!): Booking!
+    releaseEnvironmentBooking(bookingId: ID!): Booking!
   }
 `;
 

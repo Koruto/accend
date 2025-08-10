@@ -6,6 +6,7 @@ import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { RequestRecord } from '../models/request';
 import { isActive, isExpiringIn7Days } from '../models/request';
+import { environments, getActiveBookingForEnv, nextFreeAt, createImmediateBooking, getUserActiveBooking, bookingsByEnvId, extendBookingForUser, releaseBookingForUser } from '../store/env-booking';
 
 const createRequestSchema = z.object({
   resourceId: z.string().min(1),
@@ -38,6 +39,38 @@ export const resolvers = (cookieSecure: boolean) => ({
       const expiring7d = list.filter((r) => isExpiringIn7Days(now, r)).length;
       const activeDeploymentLocks = list.filter((r) => r.resourceType === 'deployment_env_lock' && isActive(now, r)).length;
       return { activeAccesses, pending, expiring7d, activeDeploymentLocks };
+    },
+
+    environments: async () => {
+      const now = new Date();
+      return environments.map((env) => {
+        const freeAt = nextFreeAt(env.id, now);
+        const active = getActiveBookingForEnv(env.id, now);
+        return {
+          id: env.id,
+          name: env.name,
+          bufferMinutes: env.bufferMinutes,
+          isFreeNow: !active && freeAt && freeAt <= now,
+          freeAt: freeAt?.toISOString() ?? null,
+        } as any;
+      });
+    },
+    activeBookingMe: async (_: unknown, __: unknown, ctx: any) => {
+      const user = ctx.user;
+      if (!user) return null;
+      const b = getUserActiveBooking(user.id, new Date());
+      return b ?? null;
+    },
+    bookingsMe: async (_: unknown, __: unknown, ctx: any) => {
+      const user = ctx.user;
+      if (!user) return [];
+      const rows: any[] = [];
+      for (const [, list] of bookingsByEnvId) {
+        rows.push(...list.filter((b) => b.userId === user.id));
+      }
+      // Return most recent first
+      rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      return rows;
     },
   },
   Mutation: {
@@ -112,6 +145,23 @@ export const resolvers = (cookieSecure: boolean) => ({
       };
       list.unshift(request);
       return request;
+    },
+
+    createEnvironmentBooking: async (_: unknown, args: { envId: string; durationMinutes: number; justification: string }, ctx: any) => {
+      const user = ctx.user;
+      if (!user) throw new Error('UNAUTHENTICATED');
+      if (args.durationMinutes <= 0) throw new Error('INVALID_DURATION');
+      return createImmediateBooking({ envId: args.envId, userId: user.id, justification: args.justification, durationMinutes: args.durationMinutes });
+    },
+    extendEnvironmentBooking: async (_: unknown, args: { bookingId: string; addMinutes: number }, ctx: any) => {
+      const user = ctx.user;
+      if (!user) throw new Error('UNAUTHENTICATED');
+      return extendBookingForUser({ bookingId: args.bookingId, userId: user.id, addMinutes: args.addMinutes, isAdmin: user.role === 'admin' });
+    },
+    releaseEnvironmentBooking: async (_: unknown, args: { bookingId: string }, ctx: any) => {
+      const user = ctx.user;
+      if (!user) throw new Error('UNAUTHENTICATED');
+      return releaseBookingForUser({ bookingId: args.bookingId, userId: user.id, isAdmin: user.role === 'admin' });
     },
   },
 });

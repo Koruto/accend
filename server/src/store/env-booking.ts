@@ -21,6 +21,11 @@ export function getActiveBookingForEnv(envId: string, now = new Date()): Booking
   return active ?? null;
 }
 
+export function getLatestBookingForEnv(envId: string): BookingRecord | null {
+  const list = bookingsByEnvId.get(envId) ?? [];
+  return list.length > 0 ? list[0] : null;
+}
+
 export function getUserActiveBooking(userId: string, now = new Date()): BookingRecord | null {
   for (const [, list] of bookingsByEnvId) {
     const active = list.find((b) => b.userId === userId && isActive(b, now));
@@ -33,8 +38,15 @@ export function nextFreeAt(envId: string, now = new Date()): Date | null {
   const env = environments.find((e) => e.id === envId);
   if (!env) return null;
   const active = getActiveBookingForEnv(envId, now);
-  if (!active || !active.endsAt) return now;
-  return new Date(new Date(active.endsAt).getTime() + env.bufferMinutes * 60 * 1000);
+  if (active && active.endsAt) {
+    return new Date(new Date(active.endsAt).getTime() + env.bufferMinutes * 60 * 1000);
+  }
+  const latest = getLatestBookingForEnv(envId);
+  if (latest && latest.endsAt) {
+    const bufferEnd = new Date(new Date(latest.endsAt).getTime() + env.bufferMinutes * 60 * 1000);
+    return bufferEnd > now ? bufferEnd : now;
+  }
+  return now;
 }
 
 export function createImmediateBooking(params: {
@@ -83,4 +95,48 @@ export function createImmediateBooking(params: {
   list.unshift(record);
   bookingsByEnvId.set(envId, list);
   return record;
+}
+
+function findBookingById(bookingId: string): { envId: string; list: BookingRecord[]; index: number; booking: BookingRecord } | null {
+  for (const [envId, list] of bookingsByEnvId) {
+    const index = list.findIndex((b) => b.id === bookingId);
+    if (index >= 0) return { envId, list, index, booking: list[index] };
+  }
+  return null;
+}
+
+export function extendBookingForUser(params: { bookingId: string; userId: string; addMinutes: number; isAdmin: boolean }): BookingRecord {
+  const { bookingId, userId, addMinutes, isAdmin } = params;
+  if (addMinutes <= 0) throw new Error('INVALID_EXTENSION');
+  const found = findBookingById(bookingId);
+  if (!found) throw new Error('BOOKING_NOT_FOUND');
+  const { list, index, booking } = found;
+  if (!isAdmin && booking.userId !== userId) throw new Error('FORBIDDEN');
+  if (!booking.startedAt || !booking.endsAt) throw new Error('NOT_ACTIVE');
+  const now = new Date();
+  if (!(new Date(booking.startedAt) <= now && now < new Date(booking.endsAt))) throw new Error('NOT_ACTIVE');
+  const total = (booking.extensionMinutesTotal ?? 0) + addMinutes;
+  if (total > 60) throw new Error('EXTENSION_LIMIT_EXCEEDED');
+  const newEnds = new Date(new Date(booking.endsAt).getTime() + addMinutes * 60 * 1000).toISOString();
+  const updated: BookingRecord = { ...booking, endsAt: newEnds, extensionMinutesTotal: total };
+  list[index] = updated;
+  return updated;
+}
+
+export function releaseBookingForUser(params: { bookingId: string; userId: string; isAdmin: boolean }): BookingRecord {
+  const { bookingId, userId, isAdmin } = params;
+  const found = findBookingById(bookingId);
+  if (!found) throw new Error('BOOKING_NOT_FOUND');
+  const { list, index, booking } = found;
+  if (!isAdmin && booking.userId !== userId) throw new Error('FORBIDDEN');
+  const nowIso = new Date().toISOString();
+  const updated: BookingRecord = {
+    ...booking,
+    status: 'released',
+    releasedAt: nowIso,
+    closedReason: 'released',
+    endsAt: nowIso,
+  };
+  list[index] = updated;
+  return updated;
 } 
