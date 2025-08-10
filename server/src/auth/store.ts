@@ -20,6 +20,7 @@ export async function createUser(params: {
     name,
     email: email.toLowerCase(),
     role,
+    accessLevel: 3,
     passwordHash,
     createdAt: new Date().toISOString(),
   };
@@ -41,6 +42,6 @@ export function getUserByEmail(email: string): PublicUser | null {
 }
 
 function toPublic(record: UserRecord): PublicUser {
-  const { id, name, email, role } = record;
-  return { id, name, email, role };
+  const { id, name, email, role, accessLevel } = record;
+  return { id, name, email, role, accessLevel };
 } 

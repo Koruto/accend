@@ -5,4 +5,5 @@ export interface PublicUser {
   name: string;
   email: string;
   role: UserRole;
+  accessLevel: number;
 } 

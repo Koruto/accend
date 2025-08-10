@@ -10,6 +10,7 @@ interface SessionClaims extends JwtPayload {
   email: string;
   role: UserRole;
   name: string;
+  accessLevel: number;
 }
 
 export function signUserSession(user: PublicUser): string {
@@ -18,6 +19,7 @@ export function signUserSession(user: PublicUser): string {
     email: user.email,
     role: user.role,
     name: user.name,
+    accessLevel: user.accessLevel,
   };
   return jwt.sign(claims, JWT_SECRET, { expiresIn: '7d' });
 }
@@ -31,6 +33,7 @@ export function verifySessionToken(token: string): PublicUser | null {
       email: payload.email,
       role: payload.role,
       name: payload.name,
+      accessLevel: payload.accessLevel ?? 3,
     };
   } catch {
     return null;

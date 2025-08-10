@@ -6,13 +6,13 @@ const client = createApolloClient();
 
 const SIGNUP_MUTATION = gql`
   mutation Signup($input: SignupInput!) {
-    signup(input: $input) { user { id name email role } }
+    signup(input: $input) { user { id name email role accessLevel } }
   }
 `;
 
 const LOGIN_MUTATION = gql`
   mutation Login($input: LoginInput!) {
-    login(input: $input) { user { id name email role } }
+    login(input: $input) { user { id name email role accessLevel } }
   }
 `;
 
@@ -21,7 +21,7 @@ const LOGOUT_MUTATION = gql`
 `;
 
 const VIEWER_QUERY = gql`
-  query { viewer { id name email role } }
+  query { viewer { id name email role accessLevel } }
 `;
 
 export async function signup(input: {

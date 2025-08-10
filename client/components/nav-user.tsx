@@ -33,6 +33,10 @@ export function NavUser() {
     ? user.name.split(" ").map((p) => p[0]).slice(0, 2).join("")
     : "U";
 
+  const accountType = user?.role === 'admin' ? 'Admin' : 'Requestor';
+  const category = user?.role === 'admin' ? '—' : user?.role === 'developer' ? 'Developer' : user?.role === 'qa' ? 'QA Engineer' : '—';
+  const accessLevelLabel = user ? `${user.accessLevel} / 5` : '—';
+
   return (
     <>
       <DropdownMenu>
@@ -77,6 +81,15 @@ export function NavUser() {
               <div className="truncate text-sm font-medium">{user?.name ?? 'User'}</div>
               <div className="truncate text-xs text-muted-foreground">{user?.email ?? ''}</div>
             </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+            <div className="text-muted-foreground">Role</div>
+            <div className="text-right">{accountType}</div>
+            <div className="text-muted-foreground">Category</div>
+            <div className="text-right">{category}</div>
+            <div className="text-muted-foreground">Access level</div>
+            <div className="text-right">{accessLevelLabel}</div>
           </div>
         </DialogContent>
       </Dialog>

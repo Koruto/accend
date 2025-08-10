@@ -5,6 +5,7 @@ export interface PublicUser {
   name: string;
   email: string;
   role: UserRole;
+  accessLevel: number; // 1..5
 }
 
 export interface UserRecord extends PublicUser {

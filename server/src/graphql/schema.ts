@@ -17,7 +17,7 @@ export const typeDefs = `
   enum RequestStatus { pending approved denied expired }
   enum RiskLevel { low medium high }
 
-  type User { id: ID! name: String! email: String! role: UserRole! }
+  type User { id: ID! name: String! email: String! role: UserRole! accessLevel: Int! }
 
   type Resource {
     id: ID!
