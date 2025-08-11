@@ -11,8 +11,9 @@ import { NavUser } from '@/components/nav-user';
 import { RequestAccessDialog } from '@/components/requester/request-access-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useMutation, useQuery } from '@apollo/client';
-import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY, BRANCH_REFS_QUERY } from '@/lib/gql';
+import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY, BRANCH_REFS_QUERY, ADMIN_PENDING_REQUESTS_QUERY, DECIDE_REQUEST_MUTATION, BOOKINGS_ALL_QUERY } from '@/lib/gql';
 import { listRuns, deriveRun, listDeploys, deriveDeploy, addDeploy} from '@/lib/sim';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -78,12 +79,15 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const isAdmin = user?.role === 'admin';
+
   const { data: resourcesData, loading: resourcesLoading } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
   const { data: requestsData, loading: requestsLoading } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
 
   const { data: envsData } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache' });
   const { data: activeBookingData } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache' });
   const { data: bookingsData } = useQuery<{ bookingsMe: BookingEntry[] }>(BOOKINGS_ME_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: bookingsAllData } = useQuery<{ bookingsAll: BookingEntry[] }>(BOOKINGS_ALL_QUERY, { skip: !isAdmin, fetchPolicy: 'no-cache' });
   const { data: branchRefsData } = useQuery<{ branchRefs: string[] }>(BRANCH_REFS_QUERY, { variables: { projectKey: 'web-app' } });
 
   const [createEnvBooking, { loading: creatingBooking }] = useMutation(CREATE_ENVIRONMENT_BOOKING);
@@ -92,7 +96,7 @@ export default function DashboardPage() {
 
   const environments = envsData?.environments ?? [];
   const activeBooking = activeBookingData?.activeBookingMe ?? null;
-  const bookings = bookingsData?.bookingsMe ?? [];
+  const bookings = isAdmin ? (bookingsAllData?.bookingsAll ?? []) : (bookingsData?.bookingsMe ?? []);
   const branches = branchRefsData?.branchRefs ?? [];
 
   const resources = resourcesData?.resources ?? [];
@@ -138,6 +142,8 @@ export default function DashboardPage() {
   const [redeployOpen, setRedeployOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [redeployBranch, setRedeployBranch] = useState('');
+  const { data: adminPendingData, refetch: refetchAdmin } = useQuery<{ adminPendingRequests: { requesterName: string; request: RequestEntry }[] }>(ADMIN_PENDING_REQUESTS_QUERY, { skip: !isAdmin, fetchPolicy: 'no-cache' });
+  const [decideRequest] = useMutation(DECIDE_REQUEST_MUTATION, { onCompleted: () => { refetchAdmin(); } });
 
   const [dateRange, setDateRange] = useState<'all' | '7d' | '30d' | '90d'>('30d');
   const [selectedStatuses, setSelectedStatuses] = useState<Set<RequestEntry['status']>>(new Set());
@@ -265,22 +271,37 @@ export default function DashboardPage() {
       d.setDate(d.getDate() - i);
       buckets.push({ key: d.toISOString().slice(0, 10), day: d.toLocaleDateString(undefined, { weekday: 'short' }), duration: 0, countsByEnv: {}, minutesByEnv: {} });
     }
-    // Build env id to name map
     const envIdToName = new Map<string, string>();
     for (const e of environments) envIdToName.set(e.id, e.name);
-    // Aggregate runs by startedAt day
-    for (const run of simRuns) {
-      const d = deriveRun(nowTick, run);
-      if (!d.startedAt || !d.finishedAt) continue;
-      const dayKey = new Date(d.startedAt).toISOString().slice(0, 10);
-      const bucket = buckets.find((b) => b.key === dayKey);
-      if (!bucket) continue;
-      bucket.duration += Math.max(0, Math.floor((d.finishedAt - d.startedAt) / 60000));
-      const envKey = run.envId ? envIdToName.get(run.envId) ?? run.envId : 'Unassigned';
-      bucket.countsByEnv[envKey] = (bucket.countsByEnv[envKey] ?? 0) + 1;
-      bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + Math.max(0, Math.floor((d.finishedAt - d.startedAt) / 60000));
+    if (isAdmin) {
+      // Aggregate all bookings (all users)
+      for (const b of bookings) {
+        if (!b.startedAt || !b.endsAt) continue;
+        const started = new Date(b.startedAt).getTime();
+        const ended = new Date(b.endsAt).getTime();
+        const minutes = Math.max(0, Math.floor((ended - started) / 60000));
+        const dayKey = new Date(b.startedAt).toISOString().slice(0, 10);
+        const bucket = buckets.find((x) => x.key === dayKey);
+        if (!bucket) continue;
+        const envKey = envIdToName.get(b.envId) ?? b.envId;
+        bucket.duration += minutes;
+        bucket.countsByEnv[envKey] = (bucket.countsByEnv[envKey] ?? 0) + 1;
+        bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + minutes;
+      }
+    } else {
+      // Aggregate my simulated runs
+      for (const run of simRuns) {
+        const d = deriveRun(nowTick, run);
+        if (!d.startedAt || !d.finishedAt) continue;
+        const dayKey = new Date(d.startedAt).toISOString().slice(0, 10);
+        const bucket = buckets.find((b) => b.key === dayKey);
+        if (!bucket) continue;
+        bucket.duration += Math.max(0, Math.floor((d.finishedAt - d.startedAt) / 60000));
+        const envKey = run.envId ? envIdToName.get(run.envId) ?? run.envId : 'Unassigned';
+        bucket.countsByEnv[envKey] = (bucket.countsByEnv[envKey] ?? 0) + 1;
+        bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + Math.max(0, Math.floor((d.finishedAt - d.startedAt) / 60000));
+      }
     }
-    // Flatten to chart rows with dynamic env keys
     const envNames = Array.from(new Set(buckets.flatMap((b) => Object.keys(b.countsByEnv))));
     const rows = buckets.map((b) => {
       const row: any = { day: b.day, duration: b.duration, minutesByEnv: b.minutesByEnv };
@@ -288,7 +309,7 @@ export default function DashboardPage() {
       return row;
     });
     return { rows, envNames };
-  }, [simRuns, environments, nowTick]);
+  }, [isAdmin, bookings, simRuns, environments, nowTick]);
   
   function WeeklyTooltip({ active, label, payload }: any) {
     if (!active || !payload || payload.length === 0) return null;
@@ -304,7 +325,7 @@ export default function DashboardPage() {
             return (
               <div key={p.dataKey} className="flex items-center justify-between gap-4">
                 <span className="text-accend-ink">{envName}</span>
-                <span className="text-accend-muted">Test ran: {count} · Total Min: {mins}</span>
+                <span className="text-accend-muted">{isAdmin ? 'Bookings' : 'Test ran'}: {count} · Total Min: {mins}</span>
               </div>
             );
           })}
@@ -322,8 +343,8 @@ export default function DashboardPage() {
             <div className="text-sm text-accend-muted">Here’s a quick snapshot of your access and environments</div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="cursor-pointer"><RequestAccessDialog /></div>
-            <div className="h-8 w-px bg-accend-ink" />
+            {!isAdmin && (<div className="cursor-pointer"><RequestAccessDialog /></div>)}
+            {!isAdmin && (<div className="h-8 w-px bg-accend-ink" />)}
             <div className="rounded-md border border-accend-border bg-white cursor-pointer"><NavUser /></div>
           </div>
         </div>
@@ -365,18 +386,29 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-start gap-2 self-start">
                         {best ? (
-                          <Button
-                            size="lg"
-                            className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-10 px-5 whitespace-nowrap cursor-pointer"
-                            onClick={async () => {
-                              const target = environments.find((e) => e.id === (bannerEnvId ?? best.id)) ?? best;
-                              try {
-                                await createEnvBooking({ variables: { envId: target.id, durationMinutes: 60, justification: 'Booking' } });
-                              } catch {}
-                            }}
-                          >
-                            Book now
-                          </Button>
+                          isAdmin ? (
+                            <Button
+                              size="lg"
+                              variant="outline"
+                              className="h-10 px-5 whitespace-nowrap cursor-pointer"
+                              onClick={() => { document.getElementById('activity')?.scrollIntoView({ behavior: 'smooth' }); }}
+                            >
+                              View activity
+                            </Button>
+                          ) : (
+                            <Button
+                              size="lg"
+                              className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-10 px-5 whitespace-nowrap cursor-pointer"
+                              onClick={async () => {
+                                const target = environments.find((e) => e.id === (bannerEnvId ?? best.id)) ?? best;
+                                try {
+                                  await createEnvBooking({ variables: { envId: target.id, durationMinutes: 60, justification: 'Booking' } });
+                                } catch {}
+                              }}
+                            >
+                              Book now
+                            </Button>
+                          )
                         ) : null}
                       </div>
                     </div>
@@ -406,10 +438,32 @@ export default function DashboardPage() {
 
           <Card className="lg:col-start-4 lg:row-start-1 lg:row-span-2">
             <CardHeader>
-              <CardTitle className="text-accend-ink">My requests</CardTitle>
+              <CardTitle className="text-accend-ink">{isAdmin ? 'Pending approvals' : 'My requests'}</CardTitle>
             </CardHeader>
             <CardContent className="h-full overflow-auto">
               {(() => {
+                if (isAdmin) {
+                  const list = adminPendingData?.adminPendingRequests ?? [];
+                  if (list.length === 0) return <div className="text-sm text-accend-muted">No pending requests.</div>;
+                  return (
+                    <div className="flex flex-col gap-2">
+                      {list.map((row) => (
+                        <div key={row.request.id} className="rounded border border-accend-border bg-white p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-accend-ink truncate">{row.requesterName} · {resourcesById.get(row.request.resourceId)?.name ?? row.request.resourceType}</div>
+                              <div className="text-[11px] text-accend-muted mt-0.5 truncate" title={row.request.justification}>{new Date(row.request.createdAt).toLocaleString()} · {row.request.justification}</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button size="icon" className="h-7 w-7 bg-emerald-500 hover:bg-emerald-500 hover:opacity-90 text-white rounded-full cursor-pointer" aria-label="Approve" onClick={() => decideRequest({ variables: { input: { requestId: row.request.id, approve: true } } })}>✓</Button>
+                              <Button size="icon" className="h-7 w-7 bg-rose-500 hover:bg-rose-500 hover:opacity-90 text-white rounded-full cursor-pointer" aria-label="Deny" onClick={() => decideRequest({ variables: { input: { requestId: row.request.id, approve: false } } })}>✕</Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
                 // Build consolidated items
                 const items: any[] = [];
                 // Running test runs
@@ -486,7 +540,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="lg:col-start-4 lg:row-start-3 lg:row-span-2">
+          <Card id="activity" className="lg:col-start-4 lg:row-start-3 lg:row-span-2">
             <CardHeader>
               <CardTitle className="text-accend-ink">Activity</CardTitle>
             </CardHeader>

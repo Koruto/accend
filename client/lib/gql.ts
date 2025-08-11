@@ -26,12 +26,6 @@ export const MY_REQUESTS_QUERY = gql`
   }
 `;
 
-export const METRICS_ME_QUERY = gql`
-  query MetricsMe {
-    metricsMe { activeAccesses pending expiring7d activeDeploymentLocks }
-  }
-`;
-
 export const CREATE_REQUEST_MUTATION = gql`
   mutation CreateRequest($input: CreateRequestInput!) {
     createRequest(input: $input) {
@@ -97,6 +91,25 @@ export const BOOKINGS_ME_QUERY = gql`
   }
 `;
 
+export const BOOKINGS_ALL_QUERY = gql`
+  query BookingsAll {
+    bookingsAll {
+      id
+      envId
+      userId
+      status
+      createdAt
+      justification
+      startedAt
+      endsAt
+      releasedAt
+      closedReason
+      durationMinutes
+      extensionMinutesTotal
+    }
+  }
+`;
+
 export const CREATE_ENVIRONMENT_BOOKING = gql`
   mutation CreateEnvironmentBooking($envId: ID!, $durationMinutes: Int!, $justification: String!) {
     createEnvironmentBooking(envId: $envId, durationMinutes: $durationMinutes, justification: $justification) {
@@ -143,4 +156,36 @@ export const BRANCH_REFS_QUERY = gql`
   query BranchRefs($projectKey: String) {
     branchRefs(projectKey: $projectKey)
   }
-`; 
+`;
+
+export const ADMIN_PENDING_REQUESTS_QUERY = gql`
+  query AdminPendingRequests {
+    adminPendingRequests {
+      requesterName
+      request {
+        id
+        userId
+        resourceId
+        resourceType
+        status
+        justification
+        createdAt
+        durationHours
+      }
+    }
+  }
+`;
+
+export const DECIDE_REQUEST_MUTATION = gql`
+  mutation DecideRequest($input: DecideRequestInput!) {
+    decideRequest(input: $input) {
+      id
+      status
+      approverId
+      approverName
+      approvedAt
+      expiresAt
+      decisionNote
+    }
+  }
+`;

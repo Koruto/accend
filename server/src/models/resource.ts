@@ -2,19 +2,7 @@ import type { UserRole } from '../auth/types';
 
 export type ResourceType =
   | 'deployment_env_lock'
-  | 'feature_flag_change'
-  | 'db_readonly'
-  | 'dwh_dataset_viewer'
-  | 'cloud_console_role'
-  | 'object_store_write_window'
-  | 'k8s_namespace_access'
-  | 'secrets_read'
-  | 'github_repo_permission'
-  | 'cicd_bypass'
-  | 'monitoring_edit'
-  | 'logging_query'
-  | 'test_run_request'
-  | 'staging_build_request';
+  | 'test_run_request';
 
 export type RiskLevel = 'low' | 'medium' | 'high';
 

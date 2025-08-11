@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { PublicUser, UserRecord, UserRole } from './types';
 
 const usersByEmail = new Map<string, UserRecord>();
+const usersById = new Map<string, UserRecord>();
 
 export async function createUser(params: {
   name: string;
@@ -25,6 +26,7 @@ export async function createUser(params: {
     createdAt: new Date().toISOString(),
   };
   usersByEmail.set(record.email, record);
+  usersById.set(record.id, record);
   return toPublic(record);
 }
 
@@ -38,6 +40,11 @@ export async function verifyUser(email: string, password: string): Promise<Publi
 
 export function getUserByEmail(email: string): PublicUser | null {
   const record = usersByEmail.get(email.toLowerCase());
+  return record ? toPublic(record) : null;
+}
+
+export function getUserPublicById(id: string): PublicUser | null {
+  const record = usersById.get(id);
   return record ? toPublic(record) : null;
 }
 

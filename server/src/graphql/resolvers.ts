@@ -1,17 +1,21 @@
 import { signUserSession, SESSION_COOKIE } from '../auth/jwt';
-import { createUser, verifyUser } from '../auth/store';
+import { createUser, verifyUser, getUserPublicById } from '../auth/store';
 import { loginSchema, signupSchema } from '../auth/schemas';
 import { resources, requestsByUserId, seedRequestsForUser } from '../store';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { RequestRecord } from '../models/request';
-import { isActive, isExpiringIn7Days } from '../models/request';
 import { environments, getActiveBookingForEnv, nextFreeAt, createImmediateBooking, getUserActiveBooking, bookingsByEnvId, extendBookingForUser, releaseBookingForUser } from '../store/env-booking';
 
 const createRequestSchema = z.object({
   resourceId: z.string().min(1),
   justification: z.string().min(6),
   durationHours: z.number().int().positive().optional(),
+});
+const decideRequestSchema = z.object({
+  requestId: z.string().min(1),
+  approve: z.boolean(),
+  decisionNote: z.string().optional(),
 });
 
 export const resolvers = (cookieSecure: boolean) => ({
@@ -28,17 +32,29 @@ export const resolvers = (cookieSecure: boolean) => ({
       seedRequestsForUser(user.id);
       return requestsByUserId.get(user.id) ?? [];
     },
-    metricsMe: async (_: unknown, __: unknown, ctx: any) => {
+    adminPendingRequests: async (_: unknown, __: unknown, ctx: any) => {
       const user = ctx.user;
-      if (!user) return { activeAccesses: 0, pending: 0, expiring7d: 0, activeDeploymentLocks: 0 };
-      seedRequestsForUser(user.id);
-      const list = requestsByUserId.get(user.id) ?? [];
-      const now = new Date();
-      const activeAccesses = list.filter((r) => isActive(now, r)).length;
-      const pending = list.filter((r) => r.status === 'pending').length;
-      const expiring7d = list.filter((r) => isExpiringIn7Days(now, r)).length;
-      const activeDeploymentLocks = list.filter((r) => r.resourceType === 'deployment_env_lock' && isActive(now, r)).length;
-      return { activeAccesses, pending, expiring7d, activeDeploymentLocks };
+      if (!user || user.role !== 'admin') return [];
+      // flatten all users' pending requests
+      const out: { request: RequestRecord; requesterName: string }[] = [];
+      for (const [, list] of requestsByUserId) {
+        for (const r of list) {
+          if (r.status === 'pending') {
+            const requester = getUserPublicById(r.userId);
+            out.push({ request: r, requesterName: requester?.name || 'User' });
+          }
+        }
+      }
+      // newest first
+      out.sort((a, b) => (b.request.createdAt || '').localeCompare(a.request.createdAt || ''));
+      return out;
+    },
+    bookingsAll: async (_: unknown, __: unknown, ctx: any) => {
+      const user = ctx.user;
+      if (!user || user.role !== 'admin') return [];
+      const list: any[] = [];
+      for (const [, bookings] of bookingsByEnvId) list.push(...bookings);
+      return list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     },
 
     environments: async () => {
@@ -147,6 +163,34 @@ export const resolvers = (cookieSecure: boolean) => ({
       };
       list.unshift(request);
       return request;
+    },
+    decideRequest: async (_: unknown, args: { input: { requestId: string; approve: boolean; decisionNote?: string } }, ctx: any) => {
+      const user = ctx.user;
+      if (!user || user.role !== 'admin') throw new Error('FORBIDDEN');
+      const parsed = decideRequestSchema.safeParse(args.input);
+      if (!parsed.success) throw new Error('INVALID_BODY');
+      // Find the request across all users
+      let target: RequestRecord | null = null;
+      let ownerUserId: string | null = null;
+      for (const [uid, list] of requestsByUserId) {
+        const found = list.find((r) => r.id === parsed.data.requestId);
+        if (found) {
+          target = found;
+          ownerUserId = uid;
+          break;
+        }
+      }
+      if (!target || !ownerUserId) throw new Error('REQUEST_NOT_FOUND');
+      target.status = parsed.data.approve ? 'approved' : 'denied';
+      target.approverId = user.id;
+      target.approverName = user.name;
+      target.approvedAt = new Date().toISOString();
+      target.decisionNote = parsed.data.decisionNote ?? null;
+      if (parsed.data.approve && target.durationHours && target.durationHours > 0) {
+        const created = new Date(target.createdAt).getTime();
+        target.expiresAt = new Date(created + target.durationHours * 3600 * 1000).toISOString();
+      }
+      return target;
     },
 
     createEnvironmentBooking: async (_: unknown, args: { envId: string; durationMinutes: number; justification: string }, ctx: any) => {

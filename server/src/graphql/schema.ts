@@ -2,19 +2,7 @@ export const typeDefs = `
   enum UserRole { developer qa admin }
   enum ResourceType {
     deployment_env_lock
-    feature_flag_change
-    db_readonly
-    dwh_dataset_viewer
-    cloud_console_role
-    object_store_write_window
-    k8s_namespace_access
-    secrets_read
-    github_repo_permission
-    cicd_bypass
-    monitoring_edit
-    logging_query
     test_run_request
-    staging_build_request
   }
   enum RequestStatus { pending approved denied expired }
   enum RiskLevel { low medium high }
@@ -72,13 +60,6 @@ export const typeDefs = `
     extensionMinutesTotal: Int
   }
 
-  type MetricsMe {
-    activeAccesses: Int!
-    pending: Int!
-    expiring7d: Int!
-    activeDeploymentLocks: Int!
-  }
-
   input SignupInput { name: String!, email: String!, password: String!, role: UserRole! }
   input LoginInput { email: String!, password: String! }
 
@@ -95,17 +76,25 @@ export const typeDefs = `
 
   input CreateRequestInput { resourceId: ID!, justification: String!, durationHours: Int }
 
+  input DecideRequestInput { requestId: ID!, approve: Boolean!, decisionNote: String }
+  type RequestWithUser {
+    request: Request!
+    requesterName: String!
+  }
+
      type Query {
      viewer: User
      resources: [Resource!]!
      myRequests(filter: RequestFilter): [Request!]!
-     metricsMe: MetricsMe!
  
      environments: [Environment!]!
      activeBookingMe: Booking
      bookingsMe: [Booking!]!
+     bookingsAll: [Booking!]!
  
      branchRefs(projectKey: String): [String!]!
+ 
+     adminPendingRequests: [RequestWithUser!]!
    }
 
   type Mutation {
@@ -114,9 +103,11 @@ export const typeDefs = `
     logout: Boolean!
     createRequest(input: CreateRequestInput!): Request!
 
-    createEnvironmentBooking(envId: ID!, durationMinutes: Int!, justification: String!): Booking!
-    extendEnvironmentBooking(bookingId: ID!, addMinutes: Int!): Booking!
-    releaseEnvironmentBooking(bookingId: ID!): Booking!
+    decideRequest(input: DecideRequestInput!): Request!
+ 
+     createEnvironmentBooking(envId: ID!, durationMinutes: Int!, justification: String!): Booking!
+     extendEnvironmentBooking(bookingId: ID!, addMinutes: Int!): Booking!
+     releaseEnvironmentBooking(bookingId: ID!): Booking!
   }
 `;
 
