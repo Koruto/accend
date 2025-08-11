@@ -229,9 +229,33 @@ export default function DashboardPage() {
       map.set(name, cur);
     }
     const arr = Array.from(map.values()).sort((a, b) => b.minutes - a.minutes);
-    const max = arr[0]?.minutes ?? 1;
-    return { rows: arr, max };
+    const total = Math.max(1, arr.reduce((acc, v) => acc + v.minutes, 0));
+    return { rows: arr, total };
   }, [bookings, environments]);
+
+  // Selection for no-active banner CTA target
+  const [bannerEnvId, setBannerEnvId] = useState<string | null>(null);
+  const bestEnv = useMemo(() => {
+    if (environments.length === 0) return null as EnvironmentEntry | null;
+    const freeNow = environments.find((e) => e.isFreeNow);
+    if (freeNow) return freeNow;
+    let best = environments[0];
+    for (const e of environments) {
+      const a = best.freeAt ? new Date(best.freeAt).getTime() : Number.MAX_SAFE_INTEGER;
+      const b = e.freeAt ? new Date(e.freeAt).getTime() : Number.MAX_SAFE_INTEGER;
+      if (b < a) best = e;
+    }
+    return best;
+  }, [environments]);
+  useEffect(() => {
+    if (!activeBooking) setBannerEnvId((prev) => prev ?? (bestEnv?.id ?? null));
+  }, [activeBooking, bestEnv]);
+
+  function minsUntil(freeAt?: string | null) {
+    if (!freeAt) return null;
+    const diff = Math.ceil((new Date(freeAt).getTime() - Date.now()) / 60000);
+    return diff <= 0 ? 0 : diff;
+  }
 
   const weeklyMixed = useMemo(() => {
     // Prepare 7 days buckets
@@ -304,35 +328,60 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:auto-rows-[180px]">
+        <section className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:auto-rows-[minmax(140px,auto)]">
           <Card className="lg:col-span-3 lg:row-start-1 lg:row-span-1">
-            <CardContent className="py-3">
+            <CardContent className="py-6">
               {!activeBooking ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm text-accend-muted">No active environment.</div>
-                  <div className="flex items-center gap-2 overflow-x-auto">
-                    {environments.slice(0, 3).map((env) => {
-                      const freeNow = env.isFreeNow;
-                      return (
-                        <div key={env.id} className="flex items-center gap-2 rounded border border-accend-border bg-white px-3 py-1">
-                          <span className="text-xs font-medium text-accend-ink">{env.name}</span>
-                          <span className="text-[10px] text-accend-muted">
-                            {freeNow ? 'Free now' : `Free at ${env.freeAt ? new Date(env.freeAt).toLocaleTimeString() : '—'} (+${env.bufferMinutes}m)`}
-                          </span>
+                (() => {
+                  const best = bestEnv;
+                  const freeCount = environments.filter((e) => e.isFreeNow).length;
+                  const chips = [...environments]
+                    .sort((a, b) => (a.isFreeNow === b.isFreeNow ? (new Date(a.freeAt || 0).getTime() - new Date(b.freeAt || 0).getTime()) : (a.isFreeNow ? -1 : 1)))
+                    .slice(0, 3);
+                  return (
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-xl font-semibold text-accend-ink">No active environment</div>
+                         <div className="text-sm text-accend-muted">Free now: <span className="font-medium text-accend-ink">{freeCount}</span> / {environments.length}</div>
+                        <div className="mt-2 flex items-center gap-2 overflow-x-auto">
+                          {chips.map((env) => {
+                            const sel = (bannerEnvId ?? best?.id) === env.id;
+                            const waitM = env.isFreeNow ? 0 : minsUntil(env.freeAt);
+                            return (
+                              <button
+                                key={env.id}
+                                className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[13px] transition-colors cursor-pointer ${sel ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'}`}
+                                onClick={() => setBannerEnvId(env.id)}
+                              >
+                                <span className={`size-2 rounded-full ${env.isFreeNow ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                <span className="font-medium text-accend-ink">{env.name}</span>
+                                {!env.isFreeNow ? (
+                                  <span className="text-accend-muted">· in {waitM ?? '—'}m</span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 self-start">
+                        {best ? (
                           <Button
-                            size="sm"
-                            className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-7 px-3"
+                            size="lg"
+                            className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-10 px-5 whitespace-nowrap cursor-pointer"
                             onClick={async () => {
-                              await createEnvBooking({ variables: { envId: env.id, durationMinutes: 60, justification: 'Booking' } });
+                              const target = environments.find((e) => e.id === (bannerEnvId ?? best.id)) ?? best;
+                              try {
+                                await createEnvBooking({ variables: { envId: target.id, durationMinutes: 60, justification: 'Booking' } });
+                              } catch {}
                             }}
                           >
-                            Book
+                            Book now
                           </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
                 <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -357,27 +406,80 @@ export default function DashboardPage() {
 
           <Card className="lg:col-start-4 lg:row-start-1 lg:row-span-2">
             <CardHeader>
-              <CardTitle className="text-accend-ink">Queued requests</CardTitle>
+              <CardTitle className="text-accend-ink">My requests</CardTitle>
             </CardHeader>
             <CardContent className="h-full overflow-auto">
               {(() => {
-                const pending = requests.filter((r) => r.status === 'pending').slice(0, 10);
-                if (pending.length === 0) return <div className="text-sm text-accend-muted">No pending approvals.</div>;
+                // Build consolidated items
+                const items: any[] = [];
+                // Running test runs
+                for (const run of simRuns) {
+                  const d = deriveRun(nowTick, run);
+                  if (d.status !== 'running') continue;
+                  const etaMs = (d.finishedAt ?? nowTick) - nowTick;
+                  items.push({
+                    key: `run_${run.id}`,
+                    type: 'run',
+                    title: `Test run · ${run.branch} · ${run.suite}`,
+                    status: 'running',
+                    etaLabel: etaMs > 0 ? `ends in ${Math.max(0, Math.floor(etaMs / 60000))}m` : 'finishing',
+                    progress: Math.min(1, Math.max(0, d.progress ?? 0)),
+                  });
+                }
+                // Active booking
+                if (activeBooking && activeBooking.endsAt && activeBooking.startedAt) {
+                  const envName = environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId;
+                  const endMs = new Date(activeBooking.endsAt).getTime();
+                  const startMs = new Date(activeBooking.startedAt).getTime();
+                  const etaMs = endMs - nowTick;
+                  const totalMs = Math.max(1, endMs - startMs);
+                  const prog = Math.min(1, Math.max(0, 1 - (etaMs / totalMs)));
+                  items.push({
+                    key: `book_${activeBooking.id}`,
+                    type: 'booking',
+                    title: `Booking · ${envName}`,
+                    status: 'active',
+                    etaLabel: etaMs > 0 ? `ends in ${Math.max(0, Math.floor(etaMs / 60000))}m` : 'finishing',
+                    progress: prog,
+                  });
+                }
+                // Pending (top 5)
+                const pending = requests.filter((r) => r.status === 'pending').slice(0, 5);
+                for (const r of pending) {
+                  const res = resourcesById.get(r.resourceId);
+                  items.push({
+                    key: `req_${r.id}`,
+                    type: 'request',
+                    title: `${res?.name ?? r.resourceType}`,
+                    status: 'pending',
+                    etaLabel: 'by EOD',
+                  });
+                }
+                if (items.length === 0) return <div className="text-sm text-accend-muted">No running tests, bookings, or pending requests.</div>;
+                const statusChip = (status: string) => {
+                  const base = 'inline-flex items-center rounded px-2 py-0.5 text-[10px] capitalize';
+                  if (status === 'running') return `${base} bg-blue-100 text-blue-700`;
+                  if (status === 'active') return `${base} bg-emerald-100 text-emerald-700`;
+                  return `${base} bg-amber-100 text-amber-700`;
+                };
                 return (
                   <div className="flex flex-col gap-2">
-                    {pending.map((r) => {
-                      const res = resourcesById.get(r.resourceId);
-                      const eta = 'by EOD';
-                      return (
-                        <div key={r.id} className="flex items-center justify-between rounded border border-accend-border bg-white p-3">
+                    {items.map((it) => (
+                      <div key={it.key} className="rounded border border-accend-border bg-white p-3">
+                        <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="text-sm font-medium text-accend-ink truncate">{res?.name ?? r.resourceType}</div>
-                            <div className="text-xs text-accend-muted truncate">Requested {new Date(r.createdAt).toLocaleString()}</div>
+                            <div className="text-sm font-medium text-accend-ink truncate">{it.title}</div>
+                            <div className="text-[11px] text-accend-muted mt-0.5">{it.etaLabel}</div>
                           </div>
-                          <div className="text-[10px] text-accend-muted whitespace-nowrap">ETA {eta}</div>
+                          <span className={statusChip(it.status)}>{it.status}</span>
                         </div>
-                      );
-                    })}
+                        {typeof it.progress === 'number' ? (
+                          <div className="mt-2 h-1.5 w-full rounded bg-accend-border/50">
+                            <div className={`h-1.5 rounded ${it.status === 'running' ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: `${Math.max(4, Math.floor(it.progress * 100))}%` }} />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
                 );
               })()}
@@ -393,17 +495,19 @@ export default function DashboardPage() {
                 <div className="text-sm text-accend-muted">No activity in the last 7 days.</div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {envUsage7d.rows.map((r) => (
+                  {envUsage7d.rows.map((r) => {
+                    const pct = Math.round((r.minutes / envUsage7d.total) * 100);
+                    return (
                     <div key={r.name} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium text-accend-ink truncate">{r.name}</span>
-                        <span className="text-xs text-accend-muted">{formatMinutes(r.minutes)}</span>
+                        <span className="text-xs text-accend-muted">{formatMinutes(r.minutes)} · {pct}%</span>
                       </div>
                       <div className="h-1.5 w-full rounded bg-accend-border/50">
-                        <div className="h-1.5 rounded bg-accend-primary" style={{ width: `${Math.max(4, Math.floor((r.minutes / envUsage7d.max) * 100))}%` }} />
+                        <div className="h-1.5 rounded bg-accend-primary" style={{ width: `${Math.max(4, Math.floor((r.minutes / envUsage7d.total) * 100))}%` }} />
                       </div>
                     </div>
-                  ))}
+                  );})}
                 </div>
               )}
             </CardContent>
