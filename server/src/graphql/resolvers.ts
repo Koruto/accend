@@ -5,7 +5,7 @@ import { resources, requestsByUserId, seedRequestsForUser } from '../store';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { RequestRecord } from '../models/request';
-import { environments, getActiveBookingForEnv, nextFreeAt, createImmediateBooking, getUserActiveBooking, bookingsByEnvId, extendBookingForUser, releaseBookingForUser } from '../store/env-booking';
+import { environments, getActiveBookingForEnv, nextFreeAt, createImmediateBooking, getUserActiveBooking, bookingsByEnvId, extendBookingForUser, releaseBookingForUser, bookingIdToRequestId } from '../store/env-booking';
 
 const createRequestSchema = z.object({
   resourceId: z.string().min(1),
@@ -65,7 +65,6 @@ export const resolvers = (cookieSecure: boolean) => ({
         return {
           id: env.id,
           name: env.name,
-          bufferMinutes: env.bufferMinutes,
           isFreeNow: !active && freeAt && freeAt <= now,
           freeAt: freeAt?.toISOString() ?? null,
         } as any;
@@ -197,17 +196,60 @@ export const resolvers = (cookieSecure: boolean) => ({
       const user = ctx.user;
       if (!user) throw new Error('UNAUTHENTICATED');
       if (args.durationMinutes <= 0) throw new Error('INVALID_DURATION');
-      return createImmediateBooking({ envId: args.envId, userId: user.id, justification: args.justification, durationMinutes: args.durationMinutes });
+      const booking = createImmediateBooking({ envId: args.envId, userId: user.id, justification: args.justification, durationMinutes: args.durationMinutes });
+      // Link to a request row in MyRequests for visibility
+      seedRequestsForUser(user.id);
+      const list = requestsByUserId.get(user.id)!;
+      const request: RequestRecord = {
+        id: booking.id, // reuse booking id for easy linkage
+        userId: user.id,
+        resourceId: args.envId,
+        resourceType: 'deployment_env_lock',
+        status: 'approved',
+        justification: args.justification,
+        createdAt: booking.createdAt,
+        durationHours: Math.ceil(args.durationMinutes / 60),
+        approvedAt: booking.createdAt,
+        expiresAt: booking.endsAt,
+        approverId: user.role === 'admin' ? user.id : null,
+        approverName: user.role === 'admin' ? user.name : null,
+      };
+      list.unshift(request);
+      bookingIdToRequestId.set(booking.id, request.id);
+      return booking;
     },
     extendEnvironmentBooking: async (_: unknown, args: { bookingId: string; addMinutes: number }, ctx: any) => {
       const user = ctx.user;
       if (!user) throw new Error('UNAUTHENTICATED');
-      return extendBookingForUser({ bookingId: args.bookingId, userId: user.id, addMinutes: args.addMinutes, isAdmin: user.role === 'admin' });
+      const updated = extendBookingForUser({ bookingId: args.bookingId, userId: user.id, addMinutes: args.addMinutes, isAdmin: user.role === 'admin' });
+      // Update linked request expiry and duration if present
+      const reqId = bookingIdToRequestId.get(args.bookingId);
+      if (reqId) {
+        const list = requestsByUserId.get(user.id) ?? [];
+        const target = list.find((r) => r.id === reqId);
+        if (target) {
+          target.expiresAt = updated.endsAt ?? target.expiresAt ?? null as any;
+          const base = (target.durationHours ?? 0) * 60;
+          target.durationHours = Math.ceil((base + args.addMinutes) / 60);
+        }
+      }
+      return updated;
     },
     releaseEnvironmentBooking: async (_: unknown, args: { bookingId: string }, ctx: any) => {
       const user = ctx.user;
       if (!user) throw new Error('UNAUTHENTICATED');
-      return releaseBookingForUser({ bookingId: args.bookingId, userId: user.id, isAdmin: user.role === 'admin' });
+      const released = releaseBookingForUser({ bookingId: args.bookingId, userId: user.id, isAdmin: user.role === 'admin' });
+      // Update linked request status
+      const reqId = bookingIdToRequestId.get(args.bookingId);
+      if (reqId) {
+        const list = requestsByUserId.get(user.id) ?? [];
+        const target = list.find((r) => r.id === reqId);
+        if (target) {
+          target.status = 'expired';
+          target.expiresAt = released.endsAt ?? target.expiresAt ?? null as any;
+        }
+      }
+      return released;
     },
   },
 });

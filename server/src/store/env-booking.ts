@@ -3,11 +3,13 @@ import type { EnvironmentRecord } from '../models/environment';
 import type { BookingRecord } from '../models/booking';
 
 export const environments: EnvironmentRecord[] = [
-  { id: 'env_staging', name: 'Staging', bufferMinutes: 10 },
-  { id: 'env_test', name: 'Test', bufferMinutes: 10 },
+  { id: 'env_staging', name: 'Staging' },
+  { id: 'env_test', name: 'Test' },
 ];
 
 export const bookingsByEnvId = new Map<string, BookingRecord[]>();
+
+export const bookingIdToRequestId = new Map<string, string>();
 
 function isActive(b: BookingRecord, now: Date): boolean {
   if (b.status !== 'approved' && b.status !== 'active') return false;
@@ -35,16 +37,9 @@ export function getUserActiveBooking(userId: string, now = new Date()): BookingR
 }
 
 export function nextFreeAt(envId: string, now = new Date()): Date | null {
-  const env = environments.find((e) => e.id === envId);
-  if (!env) return null;
   const active = getActiveBookingForEnv(envId, now);
   if (active && active.endsAt) {
-    return new Date(new Date(active.endsAt).getTime() + env.bufferMinutes * 60 * 1000);
-  }
-  const latest = getLatestBookingForEnv(envId);
-  if (latest && latest.endsAt) {
-    const bufferEnd = new Date(new Date(latest.endsAt).getTime() + env.bufferMinutes * 60 * 1000);
-    return bufferEnd > now ? bufferEnd : now;
+    return new Date(active.endsAt);
   }
   return now;
 }
@@ -61,12 +56,10 @@ export function createImmediateBooking(params: {
 
   const now = new Date();
 
-  // Enforce single active booking per user across all environments
   if (getUserActiveBooking(userId, now)) {
     throw new Error('USER_ALREADY_HAS_ACTIVE_BOOKING');
   }
 
-  // Disallow if environment is in-use or within buffer window
   const freeAt = nextFreeAt(envId, now);
   if (!freeAt || freeAt > now) {
     const ts = freeAt?.toISOString() ?? '';

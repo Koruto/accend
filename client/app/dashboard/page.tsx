@@ -11,7 +11,6 @@ import { NavUser } from '@/components/nav-user';
 import { RequestAccessDialog } from '@/components/requester/request-access-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { useMutation, useQuery } from '@apollo/client';
 import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY, BRANCH_REFS_QUERY, ADMIN_PENDING_REQUESTS_QUERY, DECIDE_REQUEST_MUTATION, BOOKINGS_ALL_QUERY } from '@/lib/gql';
 import { listRuns, deriveRun, listDeploys, deriveDeploy, addDeploy} from '@/lib/sim';
@@ -23,7 +22,6 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 interface EnvironmentEntry {
   id: string;
   name: string;
-  bufferMinutes: number;
   isFreeNow: boolean;
   freeAt?: string | null;
 }
@@ -82,17 +80,45 @@ export default function DashboardPage() {
   const isAdmin = user?.role === 'admin';
 
   const { data: resourcesData, loading: resourcesLoading } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
-  const { data: requestsData, loading: requestsLoading } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
+  const { data: requestsData, loading: requestsLoading, refetch: refetchRequests } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
 
-  const { data: envsData } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache' });
-  const { data: activeBookingData } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache' });
-  const { data: bookingsData } = useQuery<{ bookingsMe: BookingEntry[] }>(BOOKINGS_ME_QUERY, { fetchPolicy: 'no-cache' });
-  const { data: bookingsAllData } = useQuery<{ bookingsAll: BookingEntry[] }>(BOOKINGS_ALL_QUERY, { skip: !isAdmin, fetchPolicy: 'no-cache' });
+  const { data: envsData, refetch: refetchEnvs } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: activeBookingData, refetch: refetchActiveBooking } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: bookingsData, refetch: refetchBookingsMe } = useQuery<{ bookingsMe: BookingEntry[] }>(BOOKINGS_ME_QUERY, { fetchPolicy: 'no-cache' });
+  const { data: bookingsAllData, refetch: refetchBookingsAll } = useQuery<{ bookingsAll: BookingEntry[] }>(BOOKINGS_ALL_QUERY, { skip: !isAdmin, fetchPolicy: 'no-cache' });
   const { data: branchRefsData } = useQuery<{ branchRefs: string[] }>(BRANCH_REFS_QUERY, { variables: { projectKey: 'web-app' } });
 
-  const [createEnvBooking, { loading: creatingBooking }] = useMutation(CREATE_ENVIRONMENT_BOOKING);
-  const [extendEnvBooking, { loading: extending }] = useMutation(EXTEND_ENVIRONMENT_BOOKING);
-  const [releaseEnvBooking, { loading: releasing }] = useMutation(RELEASE_ENVIRONMENT_BOOKING);
+  const refetchBookings = async () => {
+    try {
+      if (isAdmin) await refetchBookingsAll();
+      else await refetchBookingsMe();
+    } catch {}
+  };
+
+  const [createEnvBooking, { loading: creatingBooking }] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
+    onCompleted: async () => {
+      await refetchActiveBooking();
+      await refetchEnvs();
+      await refetchBookings();
+      await refetchRequests();
+    },
+  });
+  const [extendEnvBooking, { loading: extending }] = useMutation(EXTEND_ENVIRONMENT_BOOKING, {
+    onCompleted: async () => {
+      await refetchActiveBooking();
+      await refetchEnvs();
+      await refetchBookings();
+      await refetchRequests();
+    },
+  });
+  const [releaseEnvBooking, { loading: releasing }] = useMutation(RELEASE_ENVIRONMENT_BOOKING, {
+    onCompleted: async () => {
+      await refetchActiveBooking();
+      await refetchEnvs();
+      await refetchBookings();
+      await refetchRequests();
+    },
+  });
 
   const environments = envsData?.environments ?? [];
   const activeBooking = activeBookingData?.activeBookingMe ?? null;
@@ -210,8 +236,49 @@ export default function DashboardPage() {
       case 'denied':
         return <Badge className="bg-rose-100 text-rose-700 border-transparent">denied</Badge>;
       default:
-        return <Badge className="bg-slate-100 text-slate-700 border-transparent">expired</Badge>;
+        return <Badge className="bg-slate-100 text-slate-700 border-transparent">finished</Badge>;
     }
+  }
+
+  const STATUS_LABEL: Record<RequestEntry['status'], string> = {
+    pending: 'pending',
+    approved: 'approved',
+    denied: 'denied',
+    expired: 'finished',
+  };
+
+  function renderDateTime(iso?: string | null) {
+    if (!iso) return <span>—</span>;
+    const d = new Date(iso);
+    const date = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    return (
+      <div className="whitespace-nowrap">
+        <div className="text-sm text-accend-ink">{date}</div>
+        <div className="text-xs text-accend-muted">{time}</div>
+      </div>
+    );
+  }
+
+  function renderApprover(r: RequestEntry) {
+    const isAdminApproval = !!r.approverId || !!r.approverName;
+    return isAdminApproval ? (
+      <Badge className="bg-blue-100 text-blue-700 border-transparent">Admin</Badge>
+    ) : (
+      <Badge className="bg-emerald-100 text-emerald-700 border-transparent">Auto-approved</Badge>
+    );
+  }
+
+  function renderResourceCell(r: RequestEntry) {
+    const res = resourcesById.get(r.resourceId);
+    if (res?.name) return res.name;
+    if (r.resourceId.startsWith('env_')) {
+      const env = environments.find((e) => e.id === r.resourceId);
+      if (env?.name) return env.name;
+      const pretty = r.resourceId.replace(/^env_/,'').replace(/_/g,' ');
+      return pretty.charAt(0).toUpperCase() + pretty.slice(1);
+    }
+    return r.resourceId;
   }
 
   function formatMinutes(total: number) {
@@ -339,7 +406,7 @@ export default function DashboardPage() {
       <main className="min-h-screen flex flex-col gap-6 p-6 mx-6 my-8 rounded-xl bg-accend-shell">
         <div className="flex items-start justify-between">
           <div className="flex flex-col gap-2">
-            <div className="text-2xl font-semibold tracking-tight text-black">Welcome back{user ? `, ${user.name.split(' ')[0]}` : ''}</div>
+            <div className="text-2xl font-semibold tracking-tight text-black">Welcome back{user?.name ? `, ${user.name.split(' ')[0]}` : ''}</div>
             <div className="text-sm text-accend-muted">Here’s a quick snapshot of your access and environments</div>
           </div>
           <div className="flex items-center gap-3">
@@ -359,6 +426,8 @@ export default function DashboardPage() {
                   const chips = [...environments]
                     .sort((a, b) => (a.isFreeNow === b.isFreeNow ? (new Date(a.freeAt || 0).getTime() - new Date(b.freeAt || 0).getTime()) : (a.isFreeNow ? -1 : 1)))
                     .slice(0, 3);
+                  const selectedEnvId = bannerEnvId ?? (best?.id ?? '');
+                  const selectedEnv = environments.find((e) => e.id === selectedEnvId) ?? best ?? null;
                   return (
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
@@ -398,15 +467,30 @@ export default function DashboardPage() {
                           ) : (
                             <Button
                               size="lg"
-                              className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-10 px-5 whitespace-nowrap cursor-pointer"
+                              className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-auto py-2.5 px-5 cursor-pointer"
+                              disabled={!selectedEnv || !selectedEnv.isFreeNow}
                               onClick={async () => {
-                                const target = environments.find((e) => e.id === (bannerEnvId ?? best.id)) ?? best;
+                                const target = selectedEnv;
+                                if (!target || !target.isFreeNow) return;
                                 try {
                                   await createEnvBooking({ variables: { envId: target.id, durationMinutes: 60, justification: 'Booking' } });
                                 } catch {}
                               }}
                             >
-                              Book now
+                              {(() => {
+                                const durationMins = 60;
+                                if (!selectedEnv) {
+                                  return <span className="font-medium leading-tight">Unavailable</span>;
+                                }
+                                const waitM = selectedEnv.isFreeNow ? 0 : minsUntil(selectedEnv.freeAt);
+                                const canBook = selectedEnv.isFreeNow;
+                                return (
+                                  <span className="flex flex-col leading-tight text-left">
+                                    <span className="font-medium">{canBook ? 'Book now' : 'Locked'}</span>
+                                    <span className="text-[11px] text-white/90">{canBook ? `${selectedEnv.name} · ${durationMins}m` : `${selectedEnv.name} · in ${waitM ?? '—'}m`}</span>
+                                  </span>
+                                );
+                              })()}
                             </Button>
                           )
                         ) : null}
@@ -425,11 +509,11 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <Button size="sm" variant="outline" disabled={releasing || deployBusy} onClick={() => setReleaseOpen(true)} className="cursor-pointer">Release</Button>
+                      <Button size="sm" variant="outline" disabled={releasing} onClick={() => setReleaseOpen(true)} className="cursor-pointer">Release</Button>
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 15 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 15 } }); }} className="cursor-pointer">+15</Button>
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 30 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 30 } }); }} className="cursor-pointer">+30</Button>
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 60 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 60 } }); }} className="cursor-pointer">+60</Button>
-                      <Button size="sm" variant="secondary" disabled={deployBusy} onClick={() => setRedeployOpen(true)} className="cursor-pointer">Redeploy</Button>
+                      <Button size="sm" variant="secondary" onClick={() => setRedeployOpen(true)} className="cursor-pointer">Redeploy</Button>
                     </div>
                 </div>
               )}
@@ -597,11 +681,11 @@ export default function DashboardPage() {
                 <CardTitle className="text-accend-ink">My requests</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-                  <div className="space-y-1">
+                <div className="mb-3 flex w-full items-end gap-3 overflow-x-auto flex-nowrap">
+                  <div className="space-y-1 pb-2">
                     <label className="text-xs font-medium text-accend-muted">Date range</label>
                     <Select value={dateRange} onValueChange={(v) => setDateRange(v as 'all' | '7d' | '30d' | '90d')}>
-                      <SelectTrigger className="h-8">
+                      <SelectTrigger className="h-8 min-w-[140px]">
                         <SelectValue placeholder="Date range" />
                       </SelectTrigger>
                       <SelectContent>
@@ -613,10 +697,10 @@ export default function DashboardPage() {
                     </Select>
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1 pb-2">
                     <label className="text-xs font-medium text-accend-muted">Resource type</label>
                     <Select value={selectedType} onValueChange={setSelectedType}>
-                      <SelectTrigger className="h-8">
+                      <SelectTrigger className="h-8 min-w-[160px]">
                         <SelectValue placeholder="All types" />
                       </SelectTrigger>
                       <SelectContent>
@@ -628,17 +712,17 @@ export default function DashboardPage() {
                     </Select>
                   </div>
 
-                  <div className="space-y-1 lg:col-span-2">
+                  <div className="space-y-1 pb-2 flex-shrink-0 min-w-[240px]">
                     <label className="text-xs font-medium text-accend-muted">Keyword</label>
                     <Input
                       value={keyword}
                       onChange={(e) => setKeyword(e.target.value)}
                       className="h-8"
-                      placeholder="Search resource, justification, approver, notes"
+                      placeholder="Search resource"
                     />
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1 pb-2 flex-shrink-0 min-w-[340px]">
                     <label className="text-xs font-medium text-accend-muted">Status</label>
                     <div className="flex flex-wrap gap-2">
                       {(['pending', 'approved', 'denied', 'expired'] as RequestEntry['status'][]).map((s) => (
@@ -649,7 +733,7 @@ export default function DashboardPage() {
                           variant={selectedStatuses.has(s) ? 'default' : 'outline'}
                           onClick={() => toggleStatus(s)}
                         >
-                          {s}
+                          {STATUS_LABEL[s]}
                         </Button>
                       ))}
                       <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
@@ -664,13 +748,11 @@ export default function DashboardPage() {
                     <TableHeader>
                       <TableRow className="bg-muted/40">
                         <TableHead>Resource</TableHead>
-                        <TableHead>Type</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Requested On</TableHead>
                         <TableHead>Duration</TableHead>
                         <TableHead>Expires At</TableHead>
                         <TableHead>Approver</TableHead>
-                        <TableHead>Notes</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -678,18 +760,16 @@ export default function DashboardPage() {
                         Array.from({ length: 5 }).map((_, idx) => (
                           <TableRow key={idx}>
                             <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                             <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                             <TableCell><Skeleton className="h-4 w-48" /></TableCell>
                             <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                             <TableCell><Skeleton className="h-4 w-48" /></TableCell>
                             <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-72" /></TableCell>
                           </TableRow>
                         ))
                       ) : filteredRequests.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                          <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                             No matching requests. Try adjusting your filters.
                           </TableCell>
                         </TableRow>
@@ -698,16 +778,12 @@ export default function DashboardPage() {
                           const res = resourcesById.get(r.resourceId);
                           return (
                             <TableRow key={r.id}>
-                              <TableCell className="whitespace-nowrap">{res?.name ?? r.resourceId}</TableCell>
-                              <TableCell className="whitespace-nowrap">{r.resourceType}</TableCell>
+                              <TableCell className="whitespace-nowrap">{renderResourceCell(r)}</TableCell>
                               <TableCell>{renderStatusBadge(r.status)}</TableCell>
-                              <TableCell className="whitespace-nowrap">{new Date(r.createdAt).toLocaleString()}</TableCell>
+                              <TableCell>{renderDateTime(r.createdAt)}</TableCell>
                               <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
-                              <TableCell className="whitespace-nowrap">{r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'}</TableCell>
-                              <TableCell className="whitespace-nowrap">{r.approverName ?? '—'}</TableCell>
-                              <TableCell className="max-w-[320px] truncate" title={r.decisionNote || r.justification}>
-                                {r.decisionNote || r.justification}
-                              </TableCell>
+                              <TableCell>{renderDateTime(r.expiresAt)}</TableCell>
+                              <TableCell className="whitespace-nowrap">{renderApprover(r)}</TableCell>
                             </TableRow>
                           );
                         })

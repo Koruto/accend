@@ -40,7 +40,6 @@ export const typeDefs = `
   type Environment {
     id: ID!
     name: String!
-    bufferMinutes: Int!
     isFreeNow: Boolean!
     freeAt: String
   }

@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation, useQuery } from "@apollo/client";
-import { ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, ENVIRONMENTS_QUERY, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BRANCH_REFS_QUERY, CREATE_REQUEST_MUTATION } from "@/lib/gql";
+import { ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, ENVIRONMENTS_QUERY, RELEASE_ENVIRONMENT_BOOKING, BRANCH_REFS_QUERY, CREATE_REQUEST_MUTATION, MY_REQUESTS_QUERY, BOOKINGS_ME_QUERY, BOOKINGS_ALL_QUERY } from "@/lib/gql";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -14,7 +14,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 interface EnvironmentEntry {
   id: string;
   name: string;
-  bufferMinutes: number;
   isFreeNow: boolean;
   freeAt?: string | null;
 }
@@ -40,9 +39,6 @@ export function RequestAccessDialog() {
   const [createBooking, { loading: creating, error: createErr }] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
     onCompleted: () => { refetchEnvs(); refetchActive(); },
   });
-  const [extendBooking, { loading: extending }] = useMutation(EXTEND_ENVIRONMENT_BOOKING, {
-    onCompleted: () => { refetchEnvs(); refetchActive(); },
-  });
   const [releaseBooking] = useMutation(RELEASE_ENVIRONMENT_BOOKING, {
     onCompleted: () => { refetchEnvs(); refetchActive(); },
   });
@@ -52,28 +48,20 @@ export function RequestAccessDialog() {
   const active = activeData?.activeBookingMe ?? null;
   const branches = branchesData?.branchRefs ?? [];
 
-  const [duration, setDuration] = useState<string>('60');
+  const [duration, setDuration] = useState<string>('');
   const [branch, setBranch] = useState<string>('');
-  const [suite, setSuite] = useState<'smoke' | 'regression'>('smoke');
-  const [notes, setNotes] = useState<string>('');
-  const [autoBook, setAutoBook] = useState<boolean>(true);
+  const [suite, setSuite] = useState<null | 'smoke' | 'regression'>(null);
+  const [selectedEnvId, setSelectedEnvId] = useState<string>('');
 
   useEffect(() => {
     if (!open) {
       setStep('select');
-      setDuration('60');
+      setDuration('');
       setBranch('');
-      setSuite('smoke');
-      setNotes('');
-      setAutoBook(true);
+      setSuite(null);
+      setSelectedEnvId('');
     }
   }, [open]);
-
-  const freeEnvs = environments.filter((e) => e.isFreeNow);
-  const lockedEnvs = environments.filter((e) => !e.isFreeNow);
-
-  const extTotal = active?.extensionMinutesTotal ?? 0;
-  const canExtend = (add: number) => (extTotal + add) <= 60;
 
   function formatTime(iso?: string | null) {
     return iso ? new Date(iso).toLocaleTimeString() : '—';
@@ -104,28 +92,36 @@ export function RequestAccessDialog() {
                 <button className={`text-xs ${step === 'select' ? '' : 'underline'} cursor-pointer`} onClick={() => setStep('select')}>Select resource</button>
               </BreadcrumbLink>
             </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <button className={`text-xs ${step === 'env' ? '' : 'underline'} cursor-pointer`} onClick={() => setStep('env')}>Environment booking</button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <button className={`text-xs ${step === 'run' ? '' : 'underline'} cursor-pointer`} onClick={() => setStep('run')}>Automated test run</button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
+            {step === 'env' && (
+              <>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <button className={`text-xs ${step === 'env' ? '' : 'underline'} cursor-pointer`} onClick={() => setStep('env')}>Environment booking</button>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+              </>
+            )}
+            {step === 'run' && (
+              <>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <button className={`text-xs ${step === 'run' ? '' : 'underline'} cursor-pointer`} onClick={() => setStep('run')}>Automated test run</button>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+              </>
+            )}
           </BreadcrumbList>
         </Breadcrumb>
 
         {step === 'select' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <button className="rounded border p-4 text-left hover:bg-muted" onClick={() => setStep('env')}>
+            <button className="rounded border p-4 text-left hover:bg-muted cursor-pointer" onClick={() => setStep('env')}>
               <div className="text-sm font-medium">Environment booking</div>
               <div className="text-xs text-muted-foreground">Reserve Staging/Test for focused testing with a short window</div>
             </button>
-            <button className="rounded border p-4 text-left hover:bg-muted" onClick={() => setStep('run')}>
+            <button className="rounded border p-4 text-left hover:bg-muted cursor-pointer" onClick={() => setStep('run')}>
               <div className="text-sm font-medium">Automated test run</div>
               <div className="text-xs text-muted-foreground">Trigger a simulated Playwright suite on a branch</div>
             </button>
@@ -152,56 +148,75 @@ export function RequestAccessDialog() {
               {envsLoading ? (
                 <Skeleton className="h-32 w-full" />
               ) : (
-                <div className="flex flex-col gap-2">
-                  {freeEnvs.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">No environments free right now.</div>
-                  ) : freeEnvs.map((env) => (
-                    <div key={env.id} className="flex items-center justify-between rounded border p-3">
-                      <div>
-                        <div className="text-sm font-medium">{env.name}</div>
-                        <div className="text-xs text-muted-foreground">Buffer {env.bufferMinutes}m</div>
-                      </div>
-                      <Button
-                        size="sm"
-                        disabled={!!active || creating}
-                        onClick={async () => {
-                          await createBooking({ variables: { envId: env.id, durationMinutes: Number(duration), justification: 'Booking' } });
-                        }}
+                <div className="flex flex-col gap-2 max-h-64 overflow-auto">
+                  {[...environments].sort((a,b) => (a.isFreeNow === b.isFreeNow ? 0 : a.isFreeNow ? -1 : 1)).map((env) => {
+                    const selected = selectedEnvId === env.id;
+                    return (
+                      <button
+                        key={env.id}
+                        type="button"
+                        onClick={() => setSelectedEnvId(env.id)}
+                        className={`flex items-center justify-between rounded border p-3 text-left cursor-pointer ${selected ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'} ${env.isFreeNow ? '' : 'opacity-80'}`}
                       >
-                        {active ? 'Booked' : 'Book'}
-                      </Button>
-                    </div>
-                  ))}
-
-                  {lockedEnvs.map((env) => (
-                    <div key={env.id} className="flex items-center justify-between rounded border p-3 opacity-80">
-                      <div>
-                        <div className="text-sm font-medium">{env.name}</div>
-                        <div className="text-xs text-muted-foreground">Free at {formatTime(env.freeAt)} (+{env.bufferMinutes}m) · in {formatDelta(env.freeAt)}</div>
-                      </div>
-                      <Button size="sm" variant="outline" disabled>
-                        Locked
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{env.name}</div>
+                          <div className="text-xs text-muted-foreground">{env.isFreeNow ? 'Free now' : `Free at ${formatTime(env.freeAt)} · in ${formatDelta(env.freeAt)}`}</div>
+                        </div>
+                        <span className={`inline-flex h-2 w-2 rounded-full ${env.isFreeNow ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="mt-4 grid grid-cols-1 gap-3">
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Duration</label>
-                  <Select value={duration} onValueChange={setDuration}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select duration" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {['30','60','120','240'].map((m) => (
-                        <SelectItem key={m} value={m}>{Number(m) / 60 < 1 ? `${m}m` : `${Number(m)/60}h`}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex flex-wrap gap-2">
+                    {['30','60','120','240'].map((m) => {
+                      const selected = duration === m;
+                      return (
+                        <Button
+                          key={m}
+                          type="button"
+                          variant={selected ? 'default' : 'outline'}
+                          size="sm"
+                          className="cursor-pointer"
+                          onClick={() => setDuration(m)}
+                        >
+                          {Number(m) / 60 < 1 ? `${m}m` : `${Number(m)/60}h`}
+                        </Button>
+                      );
+                    })}
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setDuration('')} className="cursor-pointer">Clear</Button>
+                  </div>
                 </div>
               </div>
+
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <Button variant="outline" onClick={() => setStep('select')} className="cursor-pointer">Back</Button>
+                <Button
+                  size="sm"
+                  className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 cursor-pointer"
+                  disabled={!!active || creating || !duration || !selectedEnvId}
+                  onClick={async () => {
+                    await createBooking({
+                      variables: { envId: selectedEnvId, durationMinutes: Number(duration), justification: 'Booking' },
+                      refetchQueries: [
+                        { query: ENVIRONMENTS_QUERY },
+                        { query: ACTIVE_BOOKING_ME_QUERY },
+                        { query: BOOKINGS_ME_QUERY },
+                        { query: BOOKINGS_ALL_QUERY },
+                      ],
+                      awaitRefetchQueries: true,
+                    });
+                    setOpen(false);
+                  }}
+                >
+                  Book now
+                </Button>
+              </div>
+
               {createErr ? (
                 <div className="text-xs text-rose-600 mt-2">{createErr.message}</div>
               ) : null}
@@ -210,20 +225,6 @@ export function RequestAccessDialog() {
         ) : (
           <div className="grid grid-cols-1 gap-4">
             <div className="space-y-3">
-              {active ? (
-                <Alert>
-                  <AlertTitle>Using active environment</AlertTitle>
-                  <AlertDescription className="text-xs">Env is locked to this run: {active.envId}</AlertDescription>
-                </Alert>
-              ) : (
-                <div className="flex items-center justify-between rounded border p-3">
-                  <div className="text-sm">
-                    No active booking. Auto-book environment for this run
-                  </div>
-                  <input type="checkbox" className="h-4 w-4" checked={autoBook} onChange={(e) => setAutoBook(e.target.checked)} />
-                </div>
-              )}
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Branch</label>
@@ -240,37 +241,38 @@ export function RequestAccessDialog() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Suite</label>
-                  <Select value={suite} onValueChange={(v) => setSuite(v as 'smoke' | 'regression')}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select suite" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {['smoke','regression'].map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex flex-wrap gap-2">
+                    {(['smoke','regression'] as const).map((s) => (
+                      <Button
+                        key={s}
+                        type="button"
+                        variant={suite === s ? 'default' : 'outline'}
+                        size="sm"
+                        className="cursor-pointer"
+                        onClick={() => setSuite(s)}
+                      >
+                        {s}
+                      </Button>
+                    ))}
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setSuite(null)} className="cursor-pointer">Clear</Button>
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Notes</label>
-                <textarea className="w-full rounded border p-2 text-sm min-h-20" value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
-
               <div className="flex items-center justify-end gap-2">
-                <Button variant="outline" onClick={() => setStep('select')}>Back</Button>
+                <Button variant="outline" onClick={() => setStep('select')} className="cursor-pointer">Back</Button>
                 <Button
-                  disabled={!branch}
+                  className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 cursor-pointer"
+                  disabled={!branch || !suite}
                   onClick={async () => {
-                    // Create a generic request for simulated run
-                    const payload = { branch, suite, notes, envId: active?.envId ?? null, autoBook };
-                    const res = await createRequest({ variables: { input: { resourceId: 'res_test_run', justification: JSON.stringify(payload) } } });
+                    if (!suite) return;
+                    const payload = { branch, suite };
+                    const res = await createRequest({ variables: { input: { resourceId: 'res_test_run', justification: JSON.stringify(payload) } }, refetchQueries: [{ query: MY_REQUESTS_QUERY }], awaitRefetchQueries: true });
                     const requestId = res?.data?.createRequest?.id as string | undefined;
                     if (requestId) {
                       try {
                         const mod = await import('@/lib/sim');
-                        mod.upsertRun({ id: requestId, userId: null, envId: active?.envId ?? null, branch, suite, notes, createdAt: Date.now() });
+                        mod.upsertRun({ id: requestId, userId: null, envId: null, branch, suite, createdAt: Date.now() });
                       } catch {}
                     }
                     setOpen(false);
@@ -283,18 +285,7 @@ export function RequestAccessDialog() {
           </div>
         )}
 
-        <DialogFooter>
-          {step === 'env' ? (
-            <>
-              <Button variant="outline" onClick={() => setStep('select')}>Back</Button>
-              <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
-            </>
-          ) : step === 'run' ? (
-            <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
-          ) : (
-            <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
-          )}
-        </DialogFooter>
+        <DialogFooter />
       </DialogContent>
 
       {active ? (
@@ -313,7 +304,16 @@ export function RequestAccessDialog() {
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={async () => {
-                  await releaseBooking({ variables: { bookingId: active.id } });
+                  await releaseBooking({
+                    variables: { bookingId: active.id },
+                    refetchQueries: [
+                      { query: ENVIRONMENTS_QUERY },
+                      { query: ACTIVE_BOOKING_ME_QUERY },
+                      { query: BOOKINGS_ME_QUERY },
+                      { query: BOOKINGS_ALL_QUERY },
+                    ],
+                    awaitRefetchQueries: true,
+                  });
                 }}
               >
                 Release
