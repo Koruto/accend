@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BackgroundBeams } from '@/components/ui/background-beams';
 import { friendlyMessageFromError } from '@/lib/errors';
+import { User, TestTube2, Shield } from 'lucide-react';
 
 type Mode = 'login' | 'signup';
 const CATEGORIES = [
@@ -74,6 +75,23 @@ function LoginPageInner() {
     }
   }
 
+  async function handleDemoSignin(kind: 'developer' | 'qa' | 'admin') {
+    setError('');
+    setSubmitting(true);
+    try {
+      const creds = kind === 'developer'
+        ? { email: 'dev.demo@accend.app', password: 'demo1234' }
+        : kind === 'qa'
+        ? { email: 'qa.demo@accend.app', password: 'demo1234' }
+        : { email: 'admin.demo@accend.app', password: 'demo1234' };
+      await login(creds);
+      router.push('/dashboard');
+    } catch (err: any) {
+      setError(friendlyMessageFromError(err, 'login'));
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="relative min-h-svh flex flex-col items-center justify-center gap-6 p-6 md:p-10">
       <BackgroundBeams className="-z-10" />
@@ -95,7 +113,25 @@ function LoginPageInner() {
               <p className="text-red-600 text-sm mb-2" role="alert">
                 {error}
               </p>
-            ) : null}
+            ) : (
+              <p className="text-xs text-accend-muted mb-2">Use a demo account to explore quickly. No email required.</p>
+            )}
+
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <button type="button" className="group rounded-md border border-accend-border bg-white p-3 text-center cursor-pointer hover:bg-accend-primary/5" onClick={() => handleDemoSignin('developer')}>
+                <User className="mx-auto mb-2 text-accend-primary" />
+                <div className="text-[12px] font-medium text-accend-ink">Developer</div>
+              </button>
+              <button type="button" className="group rounded-md border border-accend-border bg-white p-3 text-center cursor-pointer hover:bg-accend-primary/5" onClick={() => handleDemoSignin('qa')}>
+                <TestTube2 className="mx-auto mb-2 text-accend-primary" />
+                <div className="text-[12px] font-medium text-accend-ink">QA Engineer</div>
+              </button>
+              <button type="button" className="group rounded-md border border-accend-border bg-white p-3 text-center cursor-pointer hover:bg-accend-primary/5" onClick={() => handleDemoSignin('admin')}>
+                <Shield className="mx-auto mb-2 text-accend-primary" />
+                <div className="text-[12px] font-medium text-accend-ink">Admin</div>
+              </button>
+            </div>
+
             <form onSubmit={handleSubmit} className="space-y-4">
               {mode === 'signup' && (
                 <div className="space-y-1">

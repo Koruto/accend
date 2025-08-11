@@ -8,6 +8,7 @@ import { verifySessionToken } from './auth/jwt.js';
 import { typeDefs } from './graphql/schema.js';
 import createResolvers from './graphql/resolvers.js';
 import { connectMongo, ensureIndexes } from './store/mongo.js';
+import { ensureDemoUsers } from './auth/store';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -52,6 +53,7 @@ async function bootstrap() {
   try {
     await connectMongo(mongoUri, mongoDb);
     await ensureIndexes();
+    await ensureDemoUsers();
     app.log.info(`Connected to MongoDB db=${mongoDb}`);
   } catch (err) {
     app.log.error({ err }, 'Failed to connect to MongoDB');

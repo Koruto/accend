@@ -4,17 +4,17 @@ import type { BookingRecord } from '../models/booking';
 import { getCollection } from './mongo.js';
 
 export const environments: EnvironmentRecord[] = [
-  { id: 'env_dev', name: 'Development', accessLevelRequired: 1 },
-  { id: 'env_test', name: 'Test', accessLevelRequired: 2 },
-  { id: 'env_staging', name: 'Staging', accessLevelRequired: 3 },
-  { id: 'env_uat', name: 'UAT', accessLevelRequired: 4 },
+  { id: 'env_dev_core', name: 'Dev Core', accessLevelRequired: 1 },
+  { id: 'env_dev_payments', name: 'Dev Payments', accessLevelRequired: 1 },
+  { id: 'env_test_core', name: 'Test Core', accessLevelRequired: 2 },
+  { id: 'env_test_mobile', name: 'Test Mobile', accessLevelRequired: 2 },
+  { id: 'env_staging_eu', name: 'Staging EU', accessLevelRequired: 3 },
+  { id: 'env_staging_us', name: 'Staging US', accessLevelRequired: 3 },
+  { id: 'env_uat_retail', name: 'UAT Retail', accessLevelRequired: 4 },
+  { id: 'env_uat_enterprise', name: 'UAT Enterprise', accessLevelRequired: 4 },
+  { id: 'env_preprod', name: 'Pre-Production', accessLevelRequired: 4 },
+  { id: 'env_demo', name: 'Demo Sandbox', accessLevelRequired: 2 },
 ];
-
-function isActive(b: BookingRecord, now: Date): boolean {
-  if (b.status !== 'approved' && b.status !== 'active') return false;
-  if (!b.startedAt || !b.endsAt) return false;
-  return new Date(b.startedAt) <= now && now < new Date(b.endsAt);
-}
 
 export async function getActiveBookingForEnv(envId: string, now = new Date()): Promise<BookingRecord | null> {
   const col = getCollection<BookingRecord>('bookings');

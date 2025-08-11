@@ -59,4 +59,20 @@ export async function updateUserName(id: string, name: string): Promise<PublicUs
   const next = (res as any)?.value ?? null;
   if (!next) throw new Error('USER_NOT_FOUND');
   return toPublic(next as UserRecord);
+}
+
+export async function ensureDemoUsers(): Promise<void> {
+  const demoUsers: { name: string; email: string; role: UserRole }[] = [
+    { name: 'Developer', email: 'dev.demo@accend.app', role: 'developer' },
+    { name: 'QA Engineer', email: 'qa.demo@accend.app', role: 'qa' },
+    { name: 'Admin', email: 'admin.demo@accend.app', role: 'admin' },
+  ];
+  for (const u of demoUsers) {
+    const existing = await getUserByEmail(u.email);
+    if (!existing) {
+      try {
+        await createUser({ name: u.name, email: u.email, password: 'demo1234', role: u.role });
+      } catch { }
+    }
+  }
 } 

@@ -153,7 +153,7 @@ export default function DashboardPage() {
     } catch {}
   };
 
-  const [createEnvBooking, { loading: creatingBooking }] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
+  const [createEnvBooking] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
     onCompleted: async () => {
       await refetchActiveBooking();
       await refetchEnvs();
@@ -190,7 +190,6 @@ export default function DashboardPage() {
 
   const now = useMemo(() => new Date(), []);
 
-  // Ticker for simulated items
   const [nowTick, setNowTick] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNowTick(Date.now()), 1000);
@@ -210,11 +209,6 @@ export default function DashboardPage() {
     if (!uid) return [] as ReturnType<typeof listRuns>;
     return listRuns().filter((r) => r.userId === uid);
   }, [nowTick, requests, user?.id]);
-
-  const envDeploys = useMemo(() => {
-    if (!activeBooking) return [] as ReturnType<typeof listDeploys>;
-    return listDeploys().filter((d) => d.envId === activeBooking.envId).sort((a, b) => b.createdAt - a.createdAt);
-  }, [nowTick, activeBooking]);
 
   const [redeployOpen, setRedeployOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -394,7 +388,6 @@ export default function DashboardPage() {
     const envIdToName = new Map<string, string>();
     for (const e of environments) envIdToName.set(e.id, e.name);
     if (isAdmin) {
-      // Aggregate all bookings (all users)
       for (const b of bookings) {
         if (!b.startedAt || !b.endsAt) continue;
         const started = new Date(b.startedAt).getTime();
@@ -409,7 +402,6 @@ export default function DashboardPage() {
         bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + minutes;
       }
     } else {
-      // Aggregate my bookings
       for (const b of bookings) {
         if (!b.startedAt || !b.endsAt) continue;
         const started = new Date(b.startedAt).getTime();
@@ -423,7 +415,6 @@ export default function DashboardPage() {
         bucket.countsByEnv[envKey] = (bucket.countsByEnv[envKey] ?? 0) + 1;
         bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + minutes;
       }
-      // Aggregate my simulated runs
       for (const run of mySimRuns) {
         const d = deriveRun(nowTick, run);
         if (!d.startedAt || !d.finishedAt) continue;
