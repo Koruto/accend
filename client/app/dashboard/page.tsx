@@ -217,7 +217,7 @@ export default function DashboardPage() {
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [redeployBranch, setRedeployBranch] = useState('');
   const { data: adminPendingData, refetch: refetchAdmin } = useQuery<{ adminPendingRequests: { requesterName: string; request: RequestEntry }[] }>(ADMIN_PENDING_REQUESTS_QUERY, { skip: !isAdmin, fetchPolicy: 'no-cache' });
-  const [decideRequest] = useMutation(DECIDE_REQUEST_MUTATION, { onCompleted: () => { refetchAdmin(); } });
+  const [decideRequest] = useMutation(DECIDE_REQUEST_MUTATION, { onCompleted: async () => { try { await refetchAdmin(); } catch {} try { await refetchAdminAllRequests(); } catch {} } });
 
   const [dateRange, setDateRange] = useState<'all' | '7d' | '30d' | '90d'>('30d');
   const [selectedStatuses, setSelectedStatuses] = useState<Set<RequestEntry['status']>>(new Set());
@@ -309,13 +309,16 @@ export default function DashboardPage() {
   }
 
   function renderApprover(r: RequestEntry) {
+    if (r.status === 'pending') {
+      return <Badge className="bg-amber-100 text-amber-700 border-transparent">Pending</Badge>;
+    }
     const isAdminApproval = !!r.approverId || !!r.approverName;
     return isAdminApproval ? (
       <Badge className="bg-blue-100 text-blue-700 border-transparent">Admin</Badge>
     ) : (
       <Badge className="bg-emerald-100 text-emerald-700 border-transparent">Auto-approved</Badge>
     );
-    }
+  }
 
   function renderResourceCell(r: RequestEntry) {
     const res = resourcesById.get(r.resourceId);
@@ -582,13 +585,23 @@ export default function DashboardPage() {
                       {list.map((row) => (
                         <div key={row.request.id} className="rounded border border-accend-border bg-white p-3">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium text-accend-ink truncate">{row.requesterName} · {resourcesById.get(row.request.resourceId)?.name ?? row.request.resourceType}</div>
-                              <div className="text-[11px] text-accend-muted mt-0.5 truncate" title={row.request.justification}>{new Date(row.request.createdAt).toLocaleString()} · {row.request.justification}</div>
-                            </div>
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-accend-ink truncate">
+                                  {(() => {
+                                    try {
+                                      const j = JSON.parse(row.request.justification);
+                                      if (row.request.resourceType === 'deployment_env_lock' && j?.envName) return `${j.envName} env`;
+                                      return resourcesById.get(row.request.resourceId)?.name ?? row.request.resourceType;
+                                    } catch {
+                                      return resourcesById.get(row.request.resourceId)?.name ?? row.request.resourceType;
+                                    }
+                                  })()}
+                                </div>
+                                <div className="text-[11px] text-accend-muted mt-0.5 truncate">Requested by: {row.requesterName}</div>
+                              </div>
                             <div className="flex items-center gap-2">
-                              <Button size="icon" className="h-7 w-7 bg-emerald-500 hover:bg-emerald-500 hover:opacity-90 text-white rounded-full cursor-pointer" aria-label="Approve" onClick={() => decideRequest({ variables: { input: { requestId: row.request.id, approve: true } } })}>✓</Button>
-                              <Button size="icon" className="h-7 w-7 bg-rose-500 hover:bg-rose-500 hover:opacity-90 text-white rounded-full cursor-pointer" aria-label="Deny" onClick={() => decideRequest({ variables: { input: { requestId: row.request.id, approve: false } } })}>✕</Button>
+                              <Button size="icon" className="h-7 w-7 bg-emerald-500 hover:bg-emerald-500 hover:opacity-90 text-white rounded-full cursor-pointer" aria-label="Approve" onClick={async () => { await decideRequest({ variables: { input: { requestId: row.request.id, approve: true } } }); try { await refetchAdmin(); } catch {} try { await refetchAdminAllRequests(); } catch {} }}>✓</Button>
+                              <Button size="icon" className="h-7 w-7 bg-rose-500 hover:bg-rose-500 hover:opacity-90 text-white rounded-full cursor-pointer" aria-label="Deny" onClick={async () => { await decideRequest({ variables: { input: { requestId: row.request.id, approve: false } } }); try { await refetchAdmin(); } catch {} try { await refetchAdminAllRequests(); } catch {} }}>✕</Button>
                             </div>
                           </div>
                         </div>
@@ -630,17 +643,18 @@ export default function DashboardPage() {
                   });
                 }
                 // Pending (top 5)
-                const pending = requests.filter((r) => r.status === 'pending').slice(0, 5);
-                for (const r of pending) {
-                  const res = resourcesById.get(r.resourceId);
-                  items.push({
-                    key: `req_${r.id}`,
-                    type: 'request',
-                    title: `${res?.name ?? r.resourceType}`,
-                    status: 'pending',
-                    etaLabel: 'by EOD',
-                  });
-                }
+                  const pending = requests.filter((r) => r.status === 'pending').slice(0, 5);
+                  for (const r of pending) {
+                    const res = resourcesById.get(r.resourceId);
+                    const title = (() => { try { const j = JSON.parse(r.justification); return j?.title || `${res?.name ?? r.resourceType}`; } catch { return `${res?.name ?? r.resourceType}`; } })();
+                    items.push({
+                      key: `req_${r.id}`,
+                      type: 'request',
+                      title,
+                      status: 'pending',
+                      etaLabel: 'by EOD',
+                    });
+                  }
                 if (items.length === 0) return <div className="text-sm text-accend-muted">No running tests, bookings, or pending requests.</div>;
                 const statusChip = (status: string) => {
                   const base = 'inline-flex items-center rounded px-2 py-0.5 text-[10px] capitalize';
@@ -839,7 +853,7 @@ export default function DashboardPage() {
                                   </div>
                                 </TableCell>
                               ) : null}
-                              <TableCell className="whitespace-nowrap">{renderResourceCell(r)}</TableCell>
+                              <TableCell className="whitespace-nowrap">{(() => { try { const j = JSON.parse(r.justification); if (j?.title) return j.title; } catch {} return renderResourceCell(r); })()}</TableCell>
                               <TableCell>{renderStatusBadge(r.status)}</TableCell>
                               <TableCell>{renderDateTime(r.createdAt)}</TableCell>
                               <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>

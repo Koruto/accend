@@ -246,8 +246,31 @@ export function RequestAccessDialog() {
                   className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 cursor-pointer"
                   disabled={!!active || creating || !duration || !selectedEnvId}
                   onClick={async () => {
-                    await createBooking({ variables: { envId: selectedEnvId, durationMinutes: Number(duration), justification: 'Booking' } });
-                    setOpen(false);
+                    try {
+                      await createBooking({ variables: { envId: selectedEnvId, durationMinutes: Number(duration), justification: 'Booking' } });
+                      setOpen(false);
+                    } catch (err: any) {
+                      const msg: string = (err && err.message) ? String(err.message) : '';
+                      const insufficient = msg.includes('INSUFFICIENT_ACCESS') || msg.toLowerCase().includes('insufficient');
+                      if (insufficient) {
+                        const hours = Math.max(1, Math.ceil(Number(duration) / 60));
+                        const resourceId =
+                          selectedEnvId === 'env_dev' ? 'res_dev_lock' :
+                          selectedEnvId === 'env_test' ? 'res_test_lock' :
+                          selectedEnvId === 'env_staging' ? 'res_staging_lock' :
+                          selectedEnvId === 'env_uat' ? 'res_uat_lock' : 'res_staging_lock';
+                        const payload = { type: 'env_lock', title: `Environment lock · ${selectedEnv?.name ?? selectedEnvId}`, envId: selectedEnvId, envName: selectedEnv?.name ?? selectedEnvId, durationMinutes: Number(duration) };
+                        try {
+                          await createRequest({
+                            variables: { input: { resourceId, justification: JSON.stringify(payload), durationHours: hours } },
+                            refetchQueries: [{ query: MY_REQUESTS_QUERY }],
+                            awaitRefetchQueries: true,
+                          });
+                          try { window.dispatchEvent(new CustomEvent('accend:requests-updated')); } catch {}
+                          setOpen(false);
+                        } catch {}
+                      }
+                    }
                   }}
                 >
                   Book now
@@ -255,7 +278,9 @@ export function RequestAccessDialog() {
               </div>
 
               {createErr ? (
-                <div className="text-xs text-rose-600 mt-2">{createErr.message}</div>
+                !/INSUFFICIENT_ACCESS/i.test(createErr.message) ? (
+                  <div className="text-xs text-rose-600 mt-2">{createErr.message}</div>
+                ) : null
               ) : null}
             </div>
           </div>
