@@ -8,7 +8,7 @@ import { verifySessionToken } from './auth/jwt.js';
 import { typeDefs } from './graphql/schema.js';
 import createResolvers from './graphql/resolvers.js';
 import { connectMongo, ensureIndexes } from './store/mongo.js';
-import { ensureDemoUsers } from './auth/store';
+import { ensureDemoUsers } from './auth/store.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
