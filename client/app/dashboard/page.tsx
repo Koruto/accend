@@ -195,7 +195,15 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, []);
 
-  const simRuns = useMemo(() => listRuns(), [nowTick]);
+  useEffect(() => {
+    function onRequestsUpdated() {
+      try { refetchMyRequests(); } catch {}
+    }
+    window.addEventListener('accend:requests-updated', onRequestsUpdated);
+    return () => window.removeEventListener('accend:requests-updated', onRequestsUpdated);
+  }, [refetchMyRequests]);
+
+  const simRuns = useMemo(() => listRuns(), [nowTick, requests]);
 
   const envDeploys = useMemo(() => {
     if (!activeBooking) return [] as ReturnType<typeof listDeploys>;
@@ -690,7 +698,6 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
-
 
           <Card className="lg:col-span-3 lg:row-start-2 lg:row-span-3">
             <CardHeader>

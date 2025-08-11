@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,6 +16,7 @@ interface EnvironmentEntry {
   name: string;
   isFreeNow: boolean;
   freeAt?: string | null;
+  accessLevelRequired?: number | null;
 }
 
 interface ActiveBookingEntry {
@@ -77,6 +78,13 @@ export function RequestAccessDialog() {
   const [suite, setSuite] = useState<null | 'smoke' | 'regression'>(null);
   const [selectedEnvId, setSelectedEnvId] = useState<string>('');
 
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       setStep('select');
@@ -92,12 +100,16 @@ export function RequestAccessDialog() {
   }
   function formatDelta(toIso?: string | null): string {
     if (!toIso) return '—';
-    const ms = new Date(toIso).getTime() - Date.now();
+    const ms = new Date(toIso).getTime() - nowTick;
     if (ms <= 0) return 'now';
     const mins = Math.floor(ms / 60000);
     const secs = Math.floor((ms % 60000) / 1000);
     return `${mins}m ${secs}s`;
   }
+
+  const selectedEnv = useMemo(() => environments.find(e => e.id === selectedEnvId) ?? null, [environments, selectedEnvId]);
+
+  const disableActions = !!active;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -162,38 +174,48 @@ export function RequestAccessDialog() {
           <div className="grid grid-cols-1 gap-4">
             <div>
               {active ? (
-                <Alert className="mb-3">
-                  <AlertTitle>Active environment</AlertTitle>
-                  <AlertDescription className="text-xs">You already have an active booking. Ends at {formatTime(active.endsAt)}.</AlertDescription>
+                <Alert className="mb-3 border-amber-300 bg-amber-50">
+                  <AlertTitle className="text-amber-700">Active environment</AlertTitle>
+                  <AlertDescription className="text-amber-700/90 text-xs">
+                    You already have an active booking. Ends in {formatDelta(active.endsAt)}.
+                  </AlertDescription>
                 </Alert>
               ) : null}
 
-              <div className="text-sm font-medium mb-2">Environments</div>
+              <div className={`text-sm font-medium mb-2 ${disableActions ? 'opacity-60' : ''}`}>Environments</div>
               {envsLoading ? (
                 <Skeleton className="h-32 w-full" />
               ) : (
-                <div className="flex flex-col gap-2 max-h-64 overflow-auto">
-                  {[...environments].sort((a,b) => (a.isFreeNow === b.isFreeNow ? 0 : a.isFreeNow ? -1 : 1)).map((env) => {
-                    const selected = selectedEnvId === env.id;
-                    return (
-                      <button
-                        key={env.id}
-                        type="button"
-                        onClick={() => setSelectedEnvId(env.id)}
-                        className={`flex items-center justify-between rounded border p-3 text-left cursor-pointer ${selected ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'} ${env.isFreeNow ? '' : 'opacity-80'}`}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{env.name}</div>
-                          <div className="text-xs text-muted-foreground">{env.isFreeNow ? 'Free now' : `Free at ${formatTime(env.freeAt)} · in ${formatDelta(env.freeAt)}`}</div>
-                        </div>
-                        <span className={`inline-flex h-2 w-2 rounded-full ${env.isFreeNow ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                      </button>
-                    );
-                  })}
+                <div className="relative">
+                  <div className={`flex flex-col gap-2 max-h-64 overflow-auto ${disableActions ? 'pointer-events-none select-none' : ''}`}>
+                    {[...environments].sort((a,b) => (a.isFreeNow === b.isFreeNow ? 0 : a.isFreeNow ? -1 : 1)).map((env) => {
+                      const selected = selectedEnvId === env.id;
+                      return (
+                        <button
+                          key={env.id}
+                          type="button"
+                          onClick={() => setSelectedEnvId(env.id)}
+                          className={`flex items-center justify-between rounded border p-3 text-left cursor-pointer ${selected ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'} ${env.isFreeNow ? '' : 'opacity-80'}`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">{env.name}</div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {env.accessLevelRequired ? `Access level required: ${env.accessLevelRequired} |` : ''}
+                              {env.isFreeNow ? ' Free now' : ` Free in ${formatDelta(env.freeAt)}`}
+                            </div>
+                          </div>
+                          <span className={`inline-flex h-2 w-2 rounded-full ${env.isFreeNow ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {disableActions ? (
+                    <div className="absolute inset-0 rounded bg-white/50 backdrop-blur-[2px]" aria-hidden="true" />
+                  ) : null}
                 </div>
               )}
 
-              <div className="mt-4 grid grid-cols-1 gap-3">
+              <div className={`mt-4 grid grid-cols-1 gap-3 ${disableActions ? 'opacity-60 pointer-events-none select-none' : ''}`}>
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Duration</label>
                   <div className="flex flex-wrap gap-2">
@@ -240,6 +262,14 @@ export function RequestAccessDialog() {
         ) : (
           <div className="grid grid-cols-1 gap-4">
             <div className="space-y-3">
+              <Alert className="mb-2 border-blue-300 bg-blue-50">
+                <AlertTitle className="text-blue-700">Test run target</AlertTitle>
+                <AlertDescription className="text-blue-700/90 text-xs">
+                  {branch && suite
+                    ? `Will run the ${suite} suite on ${branch} using Accend's ephemeral runner. No environment booking is required.`
+                    : `Select a branch and suite. Your test will run on Accend's ephemeral runner (no environment booking required).`}
+                </AlertDescription>
+              </Alert>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Branch</label>
@@ -283,6 +313,7 @@ export function RequestAccessDialog() {
                     if (!suite) return;
                     const payload = { branch, suite };
                     const res = await createRequest({ variables: { input: { resourceId: 'res_test_run', justification: JSON.stringify(payload) } }, refetchQueries: [{ query: MY_REQUESTS_QUERY }], awaitRefetchQueries: true });
+                    try { window.dispatchEvent(new CustomEvent('accend:requests-updated')); } catch {}
                     const requestId = res?.data?.createRequest?.id as string | undefined;
                     if (requestId) {
                       try {
@@ -326,6 +357,7 @@ export function RequestAccessDialog() {
                       { query: ACTIVE_BOOKING_ME_QUERY },
                       { query: BOOKINGS_ME_QUERY },
                       { query: BOOKINGS_ALL_QUERY },
+                      { query: MY_REQUESTS_QUERY },
                     ],
                     awaitRefetchQueries: true,
                   });
