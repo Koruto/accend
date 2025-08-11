@@ -24,7 +24,7 @@ export default function Home() {
               Reserve shared environments and trigger automated test runs, without the chaos.
             </p>
             <div className="mt-6 flex items-center justify-center md:justify-start">
-              <a href="/login#signup" className="rounded-md bg-accend-primary text-white px-7 py-3 text-base hover:opacity-90 inline-flex items-center gap-2">Get started <MoveRight className="size-5" /></a>
+              <a href="/login" className="rounded-md bg-accend-primary text-white px-7 py-3 text-base hover:opacity-90 inline-flex items-center gap-2">Get started <MoveRight className="size-5" /></a>
             </div>
           </div>
 

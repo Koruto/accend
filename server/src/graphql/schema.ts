@@ -79,6 +79,7 @@ export const typeDefs = `
   type RequestWithUser {
     request: Request!
     requesterName: String!
+    requesterEmail: String!
   }
 
      type Query {
@@ -90,6 +91,7 @@ export const typeDefs = `
      activeBookingMe: Booking
      bookingsMe: [Booking!]!
      bookingsAll: [Booking!]!
+    adminAllRequests: [RequestWithUser!]!
  
      branchRefs(projectKey: String): [String!]!
  
@@ -101,7 +103,7 @@ export const typeDefs = `
     login(input: LoginInput!): AuthPayload!
     logout: Boolean!
     createRequest(input: CreateRequestInput!): Request!
-
+ 
     decideRequest(input: DecideRequestInput!): Request!
  
      createEnvironmentBooking(envId: ID!, durationMinutes: Int!, justification: String!): Booking!

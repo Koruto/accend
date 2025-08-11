@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useDeferredValue } from 'react';
+import { useRouter } from 'next/navigation';
 import { me } from '@/lib/auth';
 import type { PublicUser } from '@/types/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +13,7 @@ import { RequestAccessDialog } from '@/components/requester/request-access-dialo
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useMutation, useQuery } from '@apollo/client';
-import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY, BRANCH_REFS_QUERY, ADMIN_PENDING_REQUESTS_QUERY, DECIDE_REQUEST_MUTATION, BOOKINGS_ALL_QUERY } from '@/lib/gql';
+import { RESOURCES_QUERY, MY_REQUESTS_QUERY, ENVIRONMENTS_QUERY, ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, EXTEND_ENVIRONMENT_BOOKING, RELEASE_ENVIRONMENT_BOOKING, BOOKINGS_ME_QUERY, BRANCH_REFS_QUERY, ADMIN_PENDING_REQUESTS_QUERY, DECIDE_REQUEST_MUTATION, BOOKINGS_ALL_QUERY, ADMIN_ALL_REQUESTS_QUERY } from '@/lib/gql';
 import { listRuns, deriveRun, listDeploys, deriveDeploy, addDeploy} from '@/lib/sim';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -69,18 +70,55 @@ interface RequestEntry {
   approverId?: string | null;
   approverName?: string | null;
   decisionNote?: string | null;
+  requesterName?: string;
+  requesterEmail?: string;
 }
 
 export default function DashboardPage() {
 
+  const router = useRouter();
   const [user, setUser] = useState<PublicUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    function onUserUpdated(e: any) {
+      const next = e?.detail as PublicUser | undefined;
+      if (next) setUser(next);
+    }
+    window.addEventListener('accend:user-updated', onUserUpdated as any);
+    return () => window.removeEventListener('accend:user-updated', onUserUpdated as any);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const data = await me();
+        if (!cancelled) {
+          if (!data.user) {
+            router.replace('/login?redirect=/dashboard');
+            return;
+          }
+          setUser(data.user);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
   const isAdmin = user?.role === 'admin';
 
   const { data: resourcesData, loading: resourcesLoading } = useQuery<{ resources: ResourceEntry[] }>(RESOURCES_QUERY);
-  const { data: requestsData, loading: requestsLoading, refetch: refetchRequests } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
+  const { data: myRequestsData, loading: myRequestsLoading, refetch: refetchMyRequests } = useQuery<{ myRequests: RequestEntry[] }>(MY_REQUESTS_QUERY, { skip: !!isAdmin, fetchPolicy: 'cache-and-network', notifyOnNetworkStatusChange: true });
+  const { data: adminAllReqData, loading: adminAllReqLoading, refetch: refetchAdminAllRequests } = useQuery<{ adminAllRequests: { requesterName: string; requesterEmail: string; request: RequestEntry }[] }>(ADMIN_ALL_REQUESTS_QUERY, { skip: !isAdmin, fetchPolicy: 'no-cache' });
 
   const { data: envsData, refetch: refetchEnvs } = useQuery<{ environments: EnvironmentEntry[] }>(ENVIRONMENTS_QUERY, { fetchPolicy: 'no-cache' });
   const { data: activeBookingData, refetch: refetchActiveBooking } = useQuery<{ activeBookingMe: ActiveBookingEntry | null }>(ACTIVE_BOOKING_ME_QUERY, { fetchPolicy: 'no-cache' });
@@ -100,7 +138,7 @@ export default function DashboardPage() {
       await refetchActiveBooking();
       await refetchEnvs();
       await refetchBookings();
-      await refetchRequests();
+      await refetchMyRequests();
     },
   });
   const [extendEnvBooking, { loading: extending }] = useMutation(EXTEND_ENVIRONMENT_BOOKING, {
@@ -108,7 +146,7 @@ export default function DashboardPage() {
       await refetchActiveBooking();
       await refetchEnvs();
       await refetchBookings();
-      await refetchRequests();
+      await refetchMyRequests();
     },
   });
   const [releaseEnvBooking, { loading: releasing }] = useMutation(RELEASE_ENVIRONMENT_BOOKING, {
@@ -116,7 +154,7 @@ export default function DashboardPage() {
       await refetchActiveBooking();
       await refetchEnvs();
       await refetchBookings();
-      await refetchRequests();
+      await refetchMyRequests();
     },
   });
 
@@ -126,25 +164,9 @@ export default function DashboardPage() {
   const branches = branchRefsData?.branchRefs ?? [];
 
   const resources = resourcesData?.resources ?? [];
-  const requests = requestsData?.myRequests ?? [];
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      try {
-        const data = await me();
-        if (!cancelled) setUser(data.user);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const requests = isAdmin
+    ? (adminAllReqData?.adminAllRequests.map(x => ({ ...x.request, requesterName: x.requesterName, requesterEmail: x.requesterEmail })) as (RequestEntry & { requesterName?: string; requesterEmail?: string })[] ?? [])
+    : (myRequestsData?.myRequests ?? []);
 
   const now = useMemo(() => new Date(), []);
 
@@ -225,7 +247,7 @@ export default function DashboardPage() {
     });
   }, [requests, resourcesById, rangeStart, selectedStatuses, selectedType, deferredKeyword]);
 
-  const queriesLoading = resourcesLoading || requestsLoading;
+  const queriesLoading = resourcesLoading || (isAdmin ? adminAllReqLoading : myRequestsLoading);
 
   function renderStatusBadge(status: RequestEntry['status']) {
     switch (status) {
@@ -267,7 +289,7 @@ export default function DashboardPage() {
     ) : (
       <Badge className="bg-emerald-100 text-emerald-700 border-transparent">Auto-approved</Badge>
     );
-  }
+    }
 
   function renderResourceCell(r: RequestEntry) {
     const res = resourcesById.get(r.resourceId);
@@ -678,7 +700,10 @@ export default function DashboardPage() {
           <section>
             <Card>
               <CardHeader>
-                <CardTitle className="text-accend-ink">My requests</CardTitle>
+                <CardTitle className="text-accend-ink">{isAdmin ? 'All requests' : 'My requests'}</CardTitle>
+                {isAdmin ? (
+                  <div className="text-xs text-accend-muted mt-1">Includes all users’ requests. Use filters to narrow down.</div>
+                ) : null}
               </CardHeader>
               <CardContent>
                 <div className="mb-3 flex w-full items-end gap-3 overflow-x-auto flex-nowrap">
@@ -730,6 +755,7 @@ export default function DashboardPage() {
                           key={s}
                           type="button"
                           size="sm"
+                          className="py-1"
                           variant={selectedStatuses.has(s) ? 'default' : 'outline'}
                           onClick={() => toggleStatus(s)}
                         >
@@ -747,6 +773,7 @@ export default function DashboardPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40">
+                        {isAdmin ? <TableHead>User</TableHead> : null}
                         <TableHead>Resource</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Requested On</TableHead>
@@ -759,6 +786,7 @@ export default function DashboardPage() {
                       {queriesLoading ? (
                         Array.from({ length: 5 }).map((_, idx) => (
                           <TableRow key={idx}>
+                            {isAdmin ? <TableCell><Skeleton className="h-4 w-40" /></TableCell> : null}
                             <TableCell><Skeleton className="h-4 w-40" /></TableCell>
                             <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                             <TableCell><Skeleton className="h-4 w-48" /></TableCell>
@@ -769,7 +797,7 @@ export default function DashboardPage() {
                         ))
                       ) : filteredRequests.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                          <TableCell colSpan={isAdmin ? 7 : 6} className="py-8 text-center text-muted-foreground">
                             No matching requests. Try adjusting your filters.
                           </TableCell>
                         </TableRow>
@@ -778,6 +806,14 @@ export default function DashboardPage() {
                           const res = resourcesById.get(r.resourceId);
                           return (
                             <TableRow key={r.id}>
+                              {isAdmin ? (
+                                <TableCell className="whitespace-nowrap">
+                                  <div className="flex flex-col">
+                                    <span className="text-sm text-accend-ink font-medium">{r.requesterName ?? '—'}</span>
+                                    <span className="text-xs text-accend-muted">{r.requesterEmail ?? ''}</span>
+                                  </div>
+                                </TableCell>
+                              ) : null}
                               <TableCell className="whitespace-nowrap">{renderResourceCell(r)}</TableCell>
                               <TableCell>{renderStatusBadge(r.status)}</TableCell>
                               <TableCell>{renderDateTime(r.createdAt)}</TableCell>

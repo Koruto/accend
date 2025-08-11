@@ -162,6 +162,7 @@ export const ADMIN_PENDING_REQUESTS_QUERY = gql`
   query AdminPendingRequests {
     adminPendingRequests {
       requesterName
+      requesterEmail
       request {
         id
         userId
@@ -171,6 +172,30 @@ export const ADMIN_PENDING_REQUESTS_QUERY = gql`
         justification
         createdAt
         durationHours
+      }
+    }
+  }
+`;
+
+export const ADMIN_ALL_REQUESTS_QUERY = gql`
+  query AdminAllRequests {
+    adminAllRequests {
+      requesterName
+      requesterEmail
+      request {
+        id
+        userId
+        resourceId
+        resourceType
+        status
+        justification
+        createdAt
+        durationHours
+        approvedAt
+        expiresAt
+        approverId
+        approverName
+        decisionNote
       }
     }
   }

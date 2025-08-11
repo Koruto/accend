@@ -1,13 +1,14 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useMemo, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { login, signup } from '@/lib/auth';
+import { login, signup, me } from '@/lib/auth';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BackgroundBeams } from '@/components/ui/background-beams';
 
 type Mode = 'login' | 'signup';
 const CATEGORIES = [
@@ -31,6 +32,17 @@ function LoginPageInner() {
   const redirectTo = useMemo(() => search.get('redirect') || '/dashboard', [search]);
 
   const [mode, setMode] = useState<Mode>('login');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await me();
+        if (!cancelled && data.user) router.replace('/dashboard');
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -58,16 +70,16 @@ function LoginPageInner() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authentication failed';
       setError(message);
-    } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+    <div className="relative min-h-svh flex flex-col items-center justify-center gap-6 p-6 md:p-10">
+      <BackgroundBeams className="-z-10" />
       <div className="flex w-full max-w-sm flex-col gap-6">
-        <a href="/" className="flex items-center gap-2 self-center font-medium">
-          <div className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md">
+        <a href="/" className="flex text-primary-foreground items-center gap-2 self-center font-medium">
+          <div className="bg-primary flex size-6 items-center justify-center rounded-md">
             A
           </div>
           Accend

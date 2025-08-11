@@ -141,7 +141,10 @@ export function NavUser() {
                     try {
                       const res = await updateName({ variables: { name: nameDraft.trim() } });
                       const updated = res?.data?.updateMeName as PublicUser | undefined;
-                      if (updated) setUser(updated);
+                      if (updated) {
+                        setUser(updated);
+                        try { window.dispatchEvent(new CustomEvent('accend:user-updated', { detail: updated })); } catch {}
+                      }
                       setEditing(false);
                     } catch (e: any) {
                       setError(e?.message || 'Failed to save');

@@ -32,16 +32,29 @@ export const resolvers = (cookieSecure: boolean) => ({
       seedRequestsForUser(user.id);
       return requestsByUserId.get(user.id) ?? [];
     },
+    adminAllRequests: async (_: unknown, __: unknown, ctx: any) => {
+      const user = ctx.user;
+      if (!user || user.role !== 'admin') return [];
+      const out: { request: RequestRecord; requesterName: string; requesterEmail: string }[] = [];
+      for (const [uid, list] of requestsByUserId) {
+        for (const r of list) {
+          const requester = getUserPublicById(uid);
+          out.push({ request: r, requesterName: requester?.name || 'User', requesterEmail: requester?.email || '' });
+        }
+      }
+      out.sort((a, b) => (b.request.createdAt || '').localeCompare(a.request.createdAt || ''));
+      return out;
+    },
     adminPendingRequests: async (_: unknown, __: unknown, ctx: any) => {
       const user = ctx.user;
       if (!user || user.role !== 'admin') return [];
       // flatten all users' pending requests
-      const out: { request: RequestRecord; requesterName: string }[] = [];
-      for (const [, list] of requestsByUserId) {
+      const out: { request: RequestRecord; requesterName: string; requesterEmail: string }[] = [];
+      for (const [uid, list] of requestsByUserId) {
         for (const r of list) {
           if (r.status === 'pending') {
-            const requester = getUserPublicById(r.userId);
-            out.push({ request: r, requesterName: requester?.name || 'User' });
+            const requester = getUserPublicById(uid);
+            out.push({ request: r, requesterName: requester?.name || 'User', requesterEmail: requester?.email || '' });
           }
         }
       }
