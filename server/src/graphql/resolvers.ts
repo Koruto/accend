@@ -80,6 +80,7 @@ export const resolvers = (cookieSecure: boolean) => ({
           name: env.name,
           isFreeNow: !active && freeAt && freeAt <= now,
           freeAt: freeAt?.toISOString() ?? null,
+          accessLevelRequired: env.accessLevelRequired ?? null,
         } as any;
       });
     },
@@ -209,6 +210,11 @@ export const resolvers = (cookieSecure: boolean) => ({
       const user = ctx.user;
       if (!user) throw new Error('UNAUTHENTICATED');
       if (args.durationMinutes <= 0) throw new Error('INVALID_DURATION');
+      const env = environments.find((e) => e.id === args.envId);
+      if (!env) throw new Error('ENV_NOT_FOUND');
+      if ((env.accessLevelRequired ?? 0) > 0 && user.role !== 'admin' && (user.accessLevel ?? 0) < (env.accessLevelRequired ?? 0)) {
+        throw new Error('INSUFFICIENT_ACCESS');
+      }
       const booking = createImmediateBooking({ envId: args.envId, userId: user.id, justification: args.justification, durationMinutes: args.durationMinutes });
       // Link to a request row in MyRequests for visibility
       seedRequestsForUser(user.id);

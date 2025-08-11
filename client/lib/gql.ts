@@ -49,7 +49,7 @@ export const CREATE_REQUEST_MUTATION = gql`
 // Environments & Bookings
 export const ENVIRONMENTS_QUERY = gql`
   query Environments {
-    environments { id name isFreeNow freeAt }
+    environments { id name isFreeNow freeAt accessLevelRequired }
   }
 `;
 

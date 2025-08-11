@@ -37,10 +37,34 @@ export function RequestAccessDialog() {
   const { data: branchesData } = useQuery<{ branchRefs: string[] }>(BRANCH_REFS_QUERY, { variables: { projectKey: 'web-app' }, skip: !open });
 
   const [createBooking, { loading: creating, error: createErr }] = useMutation(CREATE_ENVIRONMENT_BOOKING, {
-    onCompleted: () => { refetchEnvs(); refetchActive(); },
+    refetchQueries: [
+      { query: ENVIRONMENTS_QUERY },
+      { query: ACTIVE_BOOKING_ME_QUERY },
+      { query: BOOKINGS_ME_QUERY },
+      { query: BOOKINGS_ALL_QUERY },
+      { query: MY_REQUESTS_QUERY },
+    ],
+    awaitRefetchQueries: true,
+    onCompleted: () => {
+      try { window.dispatchEvent(new CustomEvent('accend:booking-updated')); } catch {}
+      refetchEnvs();
+      refetchActive();
+    },
   });
   const [releaseBooking] = useMutation(RELEASE_ENVIRONMENT_BOOKING, {
-    onCompleted: () => { refetchEnvs(); refetchActive(); },
+    refetchQueries: [
+      { query: ENVIRONMENTS_QUERY },
+      { query: ACTIVE_BOOKING_ME_QUERY },
+      { query: BOOKINGS_ME_QUERY },
+      { query: BOOKINGS_ALL_QUERY },
+      { query: MY_REQUESTS_QUERY },
+    ],
+    awaitRefetchQueries: true,
+    onCompleted: () => {
+      try { window.dispatchEvent(new CustomEvent('accend:booking-updated')); } catch {}
+      refetchEnvs();
+      refetchActive();
+    },
   });
   const [createRequest] = useMutation(CREATE_REQUEST_MUTATION);
 
@@ -200,16 +224,7 @@ export function RequestAccessDialog() {
                   className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 cursor-pointer"
                   disabled={!!active || creating || !duration || !selectedEnvId}
                   onClick={async () => {
-                    await createBooking({
-                      variables: { envId: selectedEnvId, durationMinutes: Number(duration), justification: 'Booking' },
-                      refetchQueries: [
-                        { query: ENVIRONMENTS_QUERY },
-                        { query: ACTIVE_BOOKING_ME_QUERY },
-                        { query: BOOKINGS_ME_QUERY },
-                        { query: BOOKINGS_ALL_QUERY },
-                      ],
-                      awaitRefetchQueries: true,
-                    });
+                    await createBooking({ variables: { envId: selectedEnvId, durationMinutes: Number(duration), justification: 'Booking' } });
                     setOpen(false);
                   }}
                 >

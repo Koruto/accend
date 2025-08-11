@@ -3,8 +3,10 @@ import type { EnvironmentRecord } from '../models/environment';
 import type { BookingRecord } from '../models/booking';
 
 export const environments: EnvironmentRecord[] = [
-  { id: 'env_staging', name: 'Staging' },
-  { id: 'env_test', name: 'Test' },
+  { id: 'env_dev', name: 'Development', accessLevelRequired: 1 },
+  { id: 'env_test', name: 'Test', accessLevelRequired: 2 },
+  { id: 'env_staging', name: 'Staging', accessLevelRequired: 3 },
+  { id: 'env_uat', name: 'UAT', accessLevelRequired: 4 },
 ];
 
 export const bookingsByEnvId = new Map<string, BookingRecord[]>();

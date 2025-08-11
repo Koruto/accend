@@ -42,6 +42,7 @@ export const typeDefs = `
     name: String!
     isFreeNow: Boolean!
     freeAt: String
+    accessLevelRequired: Int
   }
 
   type Booking {
@@ -91,7 +92,7 @@ export const typeDefs = `
      activeBookingMe: Booking
      bookingsMe: [Booking!]!
      bookingsAll: [Booking!]!
-    adminAllRequests: [RequestWithUser!]!
+     adminAllRequests: [RequestWithUser!]!
  
      branchRefs(projectKey: String): [String!]!
  

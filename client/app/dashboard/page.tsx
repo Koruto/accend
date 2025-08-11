@@ -126,6 +126,24 @@ export default function DashboardPage() {
   const { data: bookingsAllData, refetch: refetchBookingsAll } = useQuery<{ bookingsAll: BookingEntry[] }>(BOOKINGS_ALL_QUERY, { skip: !isAdmin, fetchPolicy: 'no-cache' });
   const { data: branchRefsData } = useQuery<{ branchRefs: string[] }>(BRANCH_REFS_QUERY, { variables: { projectKey: 'web-app' } });
 
+  useEffect(() => {
+    async function doRefetchAll() {
+      try {
+        await Promise.all([
+          refetchActiveBooking(),
+          refetchEnvs(),
+          isAdmin ? refetchBookingsAll() : refetchBookingsMe(),
+          isAdmin ? refetchAdminAllRequests() : refetchMyRequests(),
+        ]);
+      } catch {}
+    }
+    function onBookingUpdated() {
+      doRefetchAll();
+    }
+    window.addEventListener('accend:booking-updated', onBookingUpdated);
+    return () => window.removeEventListener('accend:booking-updated', onBookingUpdated);
+  }, [isAdmin, refetchActiveBooking, refetchEnvs, refetchBookingsAll, refetchBookingsMe, refetchAdminAllRequests, refetchMyRequests]);
+
   const refetchBookings = async () => {
     try {
       if (isAdmin) await refetchBookingsAll();

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { ResourceRecord } from '../models/resource';
 import type { RequestRecord } from '../models/request';
 
@@ -28,24 +27,7 @@ export const resources: ResourceRecord[] = [
 export const requestsByUserId = new Map<string, RequestRecord[]>();
 
 export function seedRequestsForUser(userId: string) {
-  if (requestsByUserId.has(userId)) return;
-  const now = new Date();
-  const sample: RequestRecord[] = [
-    {
-      id: randomUUID(),
-      userId,
-      resourceId: 'res_staging_lock',
-      resourceType: 'deployment_env_lock',
-      status: 'approved',
-      justification: 'E2E test window for sprint-42',
-      createdAt: new Date(now.getTime() - 2 * 24 * 3600 * 1000).toISOString(),
-      durationHours: 2,
-      approvedAt: new Date(now.getTime() - 2 * 24 * 3600 * 1000 + 10 * 60 * 1000).toISOString(),
-      expiresAt: new Date(now.getTime() - 2 * 24 * 3600 * 1000 + 2 * 3600 * 1000).toISOString(),
-      approverId: 'admin_1',
-      approverName: 'Admin User',
-      decisionNote: 'Approved for QA window',
-    },
-  ];
-  requestsByUserId.set(userId, sample);
+  if (!requestsByUserId.has(userId)) {
+    requestsByUserId.set(userId, []);
+  }
 } 
