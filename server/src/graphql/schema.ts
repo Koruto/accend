@@ -107,6 +107,8 @@ export const typeDefs = `
      createEnvironmentBooking(envId: ID!, durationMinutes: Int!, justification: String!): Booking!
      extendEnvironmentBooking(bookingId: ID!, addMinutes: Int!): Booking!
      releaseEnvironmentBooking(bookingId: ID!): Booking!
+
+    updateMeName(name: String!): User!
   }
 `;
 

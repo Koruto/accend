@@ -1,5 +1,5 @@
 import { signUserSession, SESSION_COOKIE } from '../auth/jwt';
-import { createUser, verifyUser, getUserPublicById } from '../auth/store';
+import { createUser, verifyUser, getUserPublicById, updateUserName } from '../auth/store';
 import { loginSchema, signupSchema } from '../auth/schemas';
 import { resources, requestsByUserId, seedRequestsForUser } from '../store';
 import type { FastifyReply } from 'fastify';
@@ -250,6 +250,14 @@ export const resolvers = (cookieSecure: boolean) => ({
         }
       }
       return released;
+    },
+
+    updateMeName: async (_: unknown, args: { name: string }, ctx: any) => {
+      const user = ctx.user;
+      if (!user) throw new Error('UNAUTHENTICATED');
+      if (!args.name || args.name.trim().length < 2) throw new Error('INVALID_NAME');
+      const updated = updateUserName(user.id, args.name.trim());
+      return updated;
     },
   },
 });

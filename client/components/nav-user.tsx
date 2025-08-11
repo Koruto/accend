@@ -13,10 +13,19 @@ import {
 import type { PublicUser } from "@/types/auth";
 import { logout, me } from "@/lib/auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { useMutation } from "@apollo/client";
+import { UPDATE_ME_NAME } from "@/lib/gql";
 
 export function NavUser() {
   const [user, setUser] = useState<PublicUser | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [updateName] = useMutation(UPDATE_ME_NAME);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,6 +46,16 @@ export function NavUser() {
   const category = user?.role === 'admin' ? '—' : user?.role === 'developer' ? 'Developer' : user?.role === 'qa' ? 'QA Engineer' : '—';
   const accessLevelLabel = user ? `${user.accessLevel} / 5` : '—';
 
+  function handleOpenChange(open: boolean) {
+    setProfileOpen(open);
+    if (!open) {
+      setEditing(false);
+      setNameDraft(user?.name ?? "");
+      setError("");
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -55,7 +74,7 @@ export function NavUser() {
             <div className="truncate text-muted-foreground">{user?.email ?? ""}</div>
           </div>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setProfileOpen(true)}>Profile</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { setNameDraft(user?.name ?? ""); setError(""); setEditing(false); setProfileOpen(true); }}>Profile</DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
               await logout();
@@ -67,28 +86,74 @@ export function NavUser() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+      <Dialog open={profileOpen} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Profile</DialogTitle>
           </DialogHeader>
-          <div className="flex items-center gap-3">
-            <Avatar className="size-12">
-              <AvatarFallback>{initials}</AvatarFallback>
+
+          <div className="flex flex-col items-center text-center gap-3">
+            <Avatar className="size-20">
+              <AvatarFallback className="text-lg">{initials}</AvatarFallback>
             </Avatar>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{user?.name ?? 'User'}</div>
-              <div className="truncate text-xs text-muted-foreground">{user?.email ?? ''}</div>
-            </div>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+            <div className="text-muted-foreground">Name</div>
+            <div className="text-right">
+              {editing ? (
+                <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8" placeholder="Enter your name" />
+              ) : (
+                <span>{user?.name ?? 'User'}</span>
+              )}
+            </div>
+            <div className="text-muted-foreground">Email</div>
+            <div className="text-right">{user?.email ?? ''}</div>
             <div className="text-muted-foreground">Role</div>
             <div className="text-right">{accountType}</div>
             <div className="text-muted-foreground">Category</div>
             <div className="text-right">{category}</div>
             <div className="text-muted-foreground">Access level</div>
             <div className="text-right">{accessLevelLabel}</div>
+          </div>
+          {error ? <div className="mt-2 text-xs text-rose-600">{error}</div> : null}
+
+          <div className="mt-4 flex items-center justify-end gap-2">
+            {!editing ? (
+              <>
+                <Button variant="outline" onClick={() => handleOpenChange(false)} className="cursor-pointer">Close</Button>
+                <Button
+                  className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 cursor-pointer"
+                  onClick={() => { setEditing(true); setNameDraft(user?.name ?? ""); }}
+                >
+                  Edit
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => { setEditing(false); setNameDraft(user?.name ?? ""); setError(""); }} className="cursor-pointer">Cancel</Button>
+                <Button
+                  className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 cursor-pointer"
+                  disabled={saving || !nameDraft.trim() || nameDraft.trim().length < 2}
+                  onClick={async () => {
+                    setError("");
+                    setSaving(true);
+                    try {
+                      const res = await updateName({ variables: { name: nameDraft.trim() } });
+                      const updated = res?.data?.updateMeName as PublicUser | undefined;
+                      if (updated) setUser(updated);
+                      setEditing(false);
+                    } catch (e: any) {
+                      setError(e?.message || 'Failed to save');
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  Save
+                </Button>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

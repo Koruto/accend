@@ -189,3 +189,9 @@ export const DECIDE_REQUEST_MUTATION = gql`
     }
   }
 `;
+
+export const UPDATE_ME_NAME = gql`
+  mutation UpdateMeName($name: String!) {
+    updateMeName(name: $name) { id name email role accessLevel }
+  }
+`;

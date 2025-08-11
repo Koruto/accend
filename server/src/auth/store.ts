@@ -48,6 +48,15 @@ export function getUserPublicById(id: string): PublicUser | null {
   return record ? toPublic(record) : null;
 }
 
+export function updateUserName(id: string, name: string): PublicUser {
+  const record = usersById.get(id);
+  if (!record) throw new Error('USER_NOT_FOUND');
+  record.name = name;
+  usersById.set(id, record);
+  usersByEmail.set(record.email, record);
+  return toPublic(record);
+}
+
 function toPublic(record: UserRecord): PublicUser {
   const { id, name, email, role, accessLevel } = record;
   return { id, name, email, role, accessLevel };
