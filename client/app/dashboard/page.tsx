@@ -439,21 +439,31 @@ export default function DashboardPage() {
   function WeeklyTooltip({ active, label, payload }: any) {
     if (!active || !payload || payload.length === 0) return null;
     const row = payload[0].payload as any;
+    const items = payload.filter((p: any) => {
+      const envName = p.name?.replace(' (runs)', '') || p.dataKey;
+      const count = p.value ?? 0;
+      const mins = row?.minutesByEnv?.[envName] ?? 0;
+      return (count > 0) || (mins > 0);
+    });
     return (
       <div className="rounded border border-accend-border bg-white p-2 shadow-sm text-xs">
         <div className="font-medium text-accend-ink mb-1">{label}</div>
         <div className="flex flex-col gap-1">
-          {payload.map((p: any) => {
-            const envName = p.name?.replace(' (runs)', '') || p.dataKey;
-            const count = p.value ?? 0;
-            const mins = row?.minutesByEnv?.[envName] ?? 0;
-            return (
-              <div key={p.dataKey} className="flex items-center justify-between gap-4">
-                <span className="text-accend-ink">{envName}</span>
-                <span className="text-accend-muted">{isAdmin ? 'Bookings' : 'Test ran'}: {count} · Total Min: {mins}</span>
-              </div>
-            );
-          })}
+          {items.length === 0 ? (
+            <div className="text-accend-muted">No activity</div>
+          ) : (
+            items.map((p: any) => {
+              const envName = p.name?.replace(' (runs)', '') || p.dataKey;
+              const count = p.value ?? 0;
+              const mins = row?.minutesByEnv?.[envName] ?? 0;
+              return (
+                <div key={p.dataKey} className="flex items-center justify-between gap-4">
+                  <span className="text-accend-ink">{envName}</span>
+                  <span className="text-accend-muted">{isAdmin ? 'Bookings' : 'Test ran'}: {count} · Total Min: {mins}</span>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     );
@@ -461,15 +471,15 @@ export default function DashboardPage() {
 
   return (
     <>
-      <main className="min-h-screen flex flex-col gap-6 p-6 mx-6 my-8 rounded-xl bg-accend-shell">
-        <div className="flex items-start justify-between">
+      <main className="min-h-screen flex flex-col gap-6 p-4 sm:p-6 mx-2 sm:mx-6 my-4 sm:my-8 rounded-xl bg-accend-shell">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-col gap-2">
-            <div className="text-2xl font-semibold tracking-tight text-black">Welcome back{user?.name ? `, ${user.name.split(' ')[0]}` : ''}</div>
-            <div className="text-sm text-accend-muted">Here’s a quick snapshot of your access and environments</div>
+            <div className="text-xl sm:text-2xl font-semibold tracking-tight text-black">Welcome back{user?.name ? `, ${user.name.split(' ')[0]}` : ''}</div>
+            <div className="text-xs sm:text-sm text-accend-muted">Here’s a quick snapshot of your access and environments</div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 sm:mt-0">
             {!isAdmin && (<div className="cursor-pointer"><RequestAccessDialog /></div>)}
-            {!isAdmin && (<div className="h-8 w-px bg-accend-ink" />)}
+            {!isAdmin && (<div className="hidden sm:block h-8 w-px bg-accend-ink" />)}
             <div className="rounded-md border border-accend-border bg-white cursor-pointer"><NavUser /></div>
           </div>
         </div>
@@ -487,18 +497,18 @@ export default function DashboardPage() {
                   const selectedEnvId = bannerEnvId ?? (best?.id ?? '');
                   const selectedEnv = environments.find((e) => e.id === selectedEnvId) ?? best ?? null;
                   return (
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-start sm:justify-between gap-4">
                       <div className="min-w-0">
                         <div className="text-xl font-semibold text-accend-ink">No active environment</div>
                          <div className="text-sm text-accend-muted">Free now: <span className="font-medium text-accend-ink">{freeCount}</span> / {environments.length}</div>
-                        <div className="mt-2 flex items-center gap-2 overflow-x-auto">
+                        <div className="mt-2 flex items-center gap-2.5 sm:gap-2 overflow-x-auto">
                           {chips.map((env) => {
                               const sel = (bannerEnvId ?? best?.id) === env.id;
                               const waitM = env.isFreeNow ? 0 : minsUntil(env.freeAt);
                               return (
                                 <button
                                   key={env.id}
-                                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[13px] transition-colors cursor-pointer ${sel ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'}`}
+                                  className={`inline-flex items-center gap-2 rounded-full border px-3 sm:px-4 py-1.5 sm:py-2 text-[12px] sm:text-[13px] transition-colors cursor-pointer ${sel ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'}`}
                                   onClick={() => setBannerEnvId(env.id)}
                                 >
                                   <EnvLogo envId={env.id} size={16} />
@@ -512,13 +522,13 @@ export default function DashboardPage() {
                             })}
                         </div>
                       </div>
-                      <div className="flex items-start gap-2 self-start">
+                      <div className="mt-3 sm:mt-0 flex items-start gap-2 self-stretch sm:self-start w-full sm:w-auto">
                         {best ? (
                           isAdmin ? (
                             <Button
                               size="lg"
                               variant="outline"
-                              className="h-10 px-5 whitespace-nowrap cursor-pointer"
+                              className="h-10 px-5 whitespace-nowrap w-full sm:w-auto justify-center cursor-pointer"
                               onClick={() => { document.getElementById('activity')?.scrollIntoView({ behavior: 'smooth' }); }}
                             >
                               View activity
@@ -526,7 +536,7 @@ export default function DashboardPage() {
                           ) : (
                             <Button
                               size="lg"
-                              className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-auto py-2.5 px-5 cursor-pointer"
+                              className="bg-accend-primary text-white hover:bg-accend-primary hover:opacity-90 h-auto py-2.5 px-5 w-full sm:w-auto justify-center cursor-pointer"
                               disabled={!selectedEnv || !selectedEnv.isFreeNow}
                               onClick={async () => {
                                 const target = selectedEnv;
@@ -558,7 +568,7 @@ export default function DashboardPage() {
                   );
                 })()
               ) : (
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-start sm:justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-lg font-semibold text-accend-ink flex items-center gap-2">
                           <EnvLogo envId={activeBooking.envId} size={25} />
@@ -568,7 +578,7 @@ export default function DashboardPage() {
                         Ends in {(() => { const ms = (activeBooking.endsAt ? new Date(activeBooking.endsAt).getTime() : Date.now()) - nowTick; const mm = Math.max(0, Math.floor(ms / 60000)); const ss = Math.max(0, Math.floor((ms % 60000) / 1000)); return `${mm}m ${ss}s`; })()}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex flex-wrap items-center justify-start sm:justify-end gap-2 mt-3 sm:mt-0 w-full sm:w-auto">
                       <Button size="sm" variant="outline" disabled={releasing} onClick={() => setReleaseOpen(true)} className="cursor-pointer">Release</Button>
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 15 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 15 } }); }} className="cursor-pointer">+15</Button>
                       <Button size="sm" disabled={extending || (activeBooking.extensionMinutesTotal ?? 0) + 30 > 60} onClick={async () => { await extendEnvBooking({ variables: { bookingId: activeBooking.id, addMinutes: 30 } }); }} className="cursor-pointer">+30</Button>
@@ -739,11 +749,9 @@ export default function DashboardPage() {
                           key={name}
                           dataKey={name}
                           name={`${name} (runs)`}
-                          fill={["#1C64F2","#10B981","#F59E0B","#6366F1","#0EA5E9"][idx % 5]}
-                          stroke="#0F172A"
-                          strokeOpacity={0.05}
-                          radius={[4, 4, 0, 0]}
-                          className="transition-all duration-200 hover:opacity-80"
+                          fill={["#60A5FA","#86EFAC","#FCD34D","#A5B4FC","#7DD3FC"][idx % 5]}
+                          radius={0}
+                          className="transition-opacity duration-200 hover:opacity-90"
                           stackId="runs"
                         />
                       ))}
