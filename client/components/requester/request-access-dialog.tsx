@@ -9,7 +9,9 @@ import { ACTIVE_BOOKING_ME_QUERY, CREATE_ENVIRONMENT_BOOKING, ENVIRONMENTS_QUERY
 import { Skeleton } from "@/components/ui/skeleton";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { friendlyMessageFromError } from "@/lib/errors";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { EnvLogo } from "@/components/ui/env-logo";
 
 interface EnvironmentEntry {
   id: string;
@@ -198,7 +200,10 @@ export function RequestAccessDialog() {
                           className={`flex items-center justify-between rounded border p-3 text-left cursor-pointer ${selected ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'} ${env.isFreeNow ? '' : 'opacity-80'}`}
                         >
                           <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">{env.name}</div>
+                            <div className="text-sm font-medium truncate flex items-center gap-2">
+                              <EnvLogo envId={env.id} size={25} />
+                              <span className="truncate">{env.name}</span>
+                            </div>
                             <div className="text-[11px] text-muted-foreground">
                               {env.accessLevelRequired ? `Access level required: ${env.accessLevelRequired} |` : ''}
                               {env.isFreeNow ? ' Free now' : ` Free in ${formatDelta(env.freeAt)}`}
@@ -278,9 +283,7 @@ export function RequestAccessDialog() {
               </div>
 
               {createErr ? (
-                !/INSUFFICIENT_ACCESS/i.test(createErr.message) ? (
-                  <div className="text-xs text-rose-600 mt-2">{createErr.message}</div>
-                ) : null
+                <div className="text-xs text-rose-600 mt-2">{friendlyMessageFromError(createErr, 'booking')}</div>
               ) : null}
             </div>
           </div>

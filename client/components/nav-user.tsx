@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useMutation } from "@apollo/client";
 import { UPDATE_ME_NAME } from "@/lib/gql";
+import { friendlyMessageFromError } from "@/lib/errors";
 
 export function NavUser() {
   const [user, setUser] = useState<PublicUser | null>(null);
@@ -77,8 +78,12 @@ export function NavUser() {
           <DropdownMenuItem onClick={() => { setNameDraft(user?.name ?? ""); setError(""); setEditing(false); setProfileOpen(true); }}>Profile</DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
-              await logout();
-              window.location.href = '/login';
+              try {
+                await logout();
+                window.location.href = '/login';
+              } catch (e: any) {
+                setError(friendlyMessageFromError(e, 'logout'));
+              }
             }}
           >
             Sign out
@@ -147,7 +152,7 @@ export function NavUser() {
                       }
                       setEditing(false);
                     } catch (e: any) {
-                      setError(e?.message || 'Failed to save');
+                      setError(friendlyMessageFromError(e, 'profile'));
                     } finally {
                       setSaving(false);
                     }

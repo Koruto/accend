@@ -19,6 +19,8 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { EnvLogo } from '@/components/ui/env-logo';
+import { friendlyMessageFromError } from '@/lib/errors';
 
 interface EnvironmentEntry {
   id: string;
@@ -104,7 +106,7 @@ export default function DashboardPage() {
           setUser(data.user);
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load');
+        if (!cancelled) setError(friendlyMessageFromError(err, 'dashboard'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -213,8 +215,6 @@ export default function DashboardPage() {
     if (!activeBooking) return [] as ReturnType<typeof listDeploys>;
     return listDeploys().filter((d) => d.envId === activeBooking.envId).sort((a, b) => b.createdAt - a.createdAt);
   }, [nowTick, activeBooking]);
-  const latestDeploy = envDeploys.length > 0 ? envDeploys[0] : null;
-  const latestDeployDerived = latestDeploy ? deriveDeploy(nowTick, latestDeploy) : null;
 
   const [redeployOpen, setRedeployOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -502,22 +502,23 @@ export default function DashboardPage() {
                          <div className="text-sm text-accend-muted">Free now: <span className="font-medium text-accend-ink">{freeCount}</span> / {environments.length}</div>
                         <div className="mt-2 flex items-center gap-2 overflow-x-auto">
                           {chips.map((env) => {
-                            const sel = (bannerEnvId ?? best?.id) === env.id;
-                            const waitM = env.isFreeNow ? 0 : minsUntil(env.freeAt);
-                            return (
-                              <button
-                                key={env.id}
-                                className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[13px] transition-colors cursor-pointer ${sel ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'}`}
-                                onClick={() => setBannerEnvId(env.id)}
-                              >
-                                <span className={`size-2 rounded-full ${env.isFreeNow ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                                <span className="font-medium text-accend-ink">{env.name}</span>
-                                {!env.isFreeNow ? (
-                                  <span className="text-accend-muted">· in {waitM ?? '—'}m</span>
-                                ) : null}
-                              </button>
-                            );
-                          })}
+                              const sel = (bannerEnvId ?? best?.id) === env.id;
+                              const waitM = env.isFreeNow ? 0 : minsUntil(env.freeAt);
+                              return (
+                                <button
+                                  key={env.id}
+                                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[13px] transition-colors cursor-pointer ${sel ? 'border-accend-primary bg-accend-primary/10' : 'border-accend-border bg-white'}`}
+                                  onClick={() => setBannerEnvId(env.id)}
+                                >
+                                  <EnvLogo envId={env.id} size={16} />
+                                  <span className="font-medium text-accend-ink">{env.name}</span>
+                                  {!env.isFreeNow ? (
+                                    <span className="text-accend-muted">· in {waitM ?? '—'}m</span>
+                                  ) : null}
+                                  <span className={`ml-1 size-2.5 rounded-full ${env.isFreeNow ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                </button>
+                              );
+                            })}
                         </div>
                       </div>
                       <div className="flex items-start gap-2 self-start">
@@ -568,9 +569,10 @@ export default function DashboardPage() {
               ) : (
                 <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-lg font-semibold text-accend-ink">
-                        {environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId}
-                      </div>
+                      <div className="text-lg font-semibold text-accend-ink flex items-center gap-2">
+                          <EnvLogo envId={activeBooking.envId} size={25} />
+                          <span>{environments.find((e) => e.id === activeBooking.envId)?.name ?? activeBooking.envId}</span>
+                        </div>
                       <div className="text-xs text-accend-muted">
                         Ends in {(() => { const ms = (activeBooking.endsAt ? new Date(activeBooking.endsAt).getTime() : Date.now()) - nowTick; const mm = Math.max(0, Math.floor(ms / 60000)); const ss = Math.max(0, Math.floor((ms % 60000) / 1000)); return `${mm}m ${ss}s`; })()}
                       </div>
@@ -716,7 +718,7 @@ export default function DashboardPage() {
                     return (
                     <div key={r.name} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium text-accend-ink truncate">{r.name}</span>
+                        <span className="font-medium text-accend-ink truncate flex items-center gap-2"><EnvLogo envId={r.name === 'Development' ? 'env_dev' : r.name === 'Test' ? 'env_test' : r.name === 'Staging' ? 'env_staging' : r.name === 'UAT' ? 'env_uat' : undefined} size={18} /><span className="truncate">{r.name}</span></span>
                         <span className="text-xs text-accend-muted">{formatMinutes(r.minutes)} · {pct}%</span>
                       </div>
                       <div className="h-1.5 w-full rounded bg-accend-border/50">
@@ -737,155 +739,164 @@ export default function DashboardPage() {
               <div className="h-full min-h-[360px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={weeklyMixed.rows} margin={{ left: 12, right: 12 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                    <Tooltip content={<WeeklyTooltip />} />
-                    {weeklyMixed.envNames.map((name, idx) => (
-                      <Bar key={name} dataKey={name} name={`${name} (runs)`} fill={["#328AA1","#0EA5E9","#10B981","#F59E0B","#6366F1"][idx % 5]} stackId="runs" />
-                    ))}
-                  </BarChart>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#6B7280' }} axisLine={{ stroke: '#E5E7EB' }} tickLine={{ stroke: '#E5E7EB' }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#6B7280' }} axisLine={{ stroke: '#E5E7EB' }} tickLine={{ stroke: '#E5E7EB' }} />
+                      <Tooltip cursor={{ fill: 'rgba(2, 6, 23, 0.04)' }} content={<WeeklyTooltip />} />
+                      {weeklyMixed.envNames.map((name, idx) => (
+                        <Bar
+                          key={name}
+                          dataKey={name}
+                          name={`${name} (runs)`}
+                          fill={["#1C64F2","#10B981","#F59E0B","#6366F1","#0EA5E9"][idx % 5]}
+                          stroke="#0F172A"
+                          strokeOpacity={0.05}
+                          radius={[4, 4, 0, 0]}
+                          className="transition-all duration-200 hover:opacity-80"
+                          stackId="runs"
+                        />
+                      ))}
+                    </BarChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
         </section>
 
+        <section>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-accend-ink">{isAdmin ? 'All requests' : 'My requests'}</CardTitle>
+              {isAdmin ? (
+                <div className="text-xs text-accend-muted mt-1">Includes all users’ requests. Use filters to narrow down.</div>
+              ) : null}
+            </CardHeader>
+            <CardContent>
+              <div className="mb-3 flex w-full items-end gap-3 overflow-x-auto flex-nowrap">
+                <div className="space-y-1 pb-2">
+                  <label className="text-xs font-medium text-accend-muted">Date range</label>
+                  <Select value={dateRange} onValueChange={(v) => setDateRange(v as 'all' | '7d' | '30d' | '90d')}>
+                    <SelectTrigger className="h-8 min-w-[140px]">
+                      <SelectValue placeholder="Date range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All time</SelectItem>
+                      <SelectItem value="7d">Last 7 days</SelectItem>
+                      <SelectItem value="30d">Last 30 days</SelectItem>
+                      <SelectItem value="90d">Last 90 days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-          <section>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-accend-ink">{isAdmin ? 'All requests' : 'My requests'}</CardTitle>
-                {isAdmin ? (
-                  <div className="text-xs text-accend-muted mt-1">Includes all users’ requests. Use filters to narrow down.</div>
-                ) : null}
-              </CardHeader>
-              <CardContent>
-                <div className="mb-3 flex w-full items-end gap-3 overflow-x-auto flex-nowrap">
-                  <div className="space-y-1 pb-2">
-                    <label className="text-xs font-medium text-accend-muted">Date range</label>
-                    <Select value={dateRange} onValueChange={(v) => setDateRange(v as 'all' | '7d' | '30d' | '90d')}>
-                      <SelectTrigger className="h-8 min-w-[140px]">
-                        <SelectValue placeholder="Date range" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All time</SelectItem>
-                        <SelectItem value="7d">Last 7 days</SelectItem>
-                        <SelectItem value="30d">Last 30 days</SelectItem>
-                        <SelectItem value="90d">Last 90 days</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1 pb-2">
-                    <label className="text-xs font-medium text-accend-muted">Resource type</label>
-                    <Select value={selectedType} onValueChange={setSelectedType}>
-                      <SelectTrigger className="h-8 min-w-[160px]">
-                        <SelectValue placeholder="All types" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        {uniqueTypes.map((t) => (
-                          <SelectItem key={t} value={t}>{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1 pb-2 flex-shrink-0 min-w-[240px]">
-                    <label className="text-xs font-medium text-accend-muted">Keyword</label>
-                    <Input
-                      value={keyword}
-                      onChange={(e) => setKeyword(e.target.value)}
-                      className="h-8"
-                      placeholder="Search resource"
-                    />
-                  </div>
-
-                  <div className="space-y-1 pb-2 flex-shrink-0 min-w-[340px]">
-                    <label className="text-xs font-medium text-accend-muted">Status</label>
-                    <div className="flex flex-wrap gap-2">
-                      {(['pending', 'approved', 'denied', 'expired'] as RequestEntry['status'][]).map((s) => (
-                        <Button
-                          key={s}
-                          type="button"
-                          size="sm"
-                          className="py-1"
-                          variant={selectedStatuses.has(s) ? 'default' : 'outline'}
-                          onClick={() => toggleStatus(s)}
-                        >
-                          {STATUS_LABEL[s]}
-                        </Button>
+                <div className="space-y-1 pb-2">
+                  <label className="text-xs font-medium text-accend-muted">Resource type</label>
+                  <Select value={selectedType} onValueChange={setSelectedType}>
+                    <SelectTrigger className="h-8 min-w-[160px]">
+                      <SelectValue placeholder="All types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      {uniqueTypes.map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
                       ))}
-                      <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
-                        Clear
-                      </Button>
-                    </div>
-                  </div>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                <div className="rounded-xl border border-accend-border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/40">
-                        {isAdmin ? <TableHead>User</TableHead> : null}
-                        <TableHead>Resource</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Requested On</TableHead>
-                        <TableHead>Duration</TableHead>
-                        <TableHead>Expires At</TableHead>
-                        <TableHead>Approver</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {queriesLoading ? (
-                        Array.from({ length: 5 }).map((_, idx) => (
-                          <TableRow key={idx}>
-                            {isAdmin ? <TableCell><Skeleton className="h-4 w-40" /></TableCell> : null}
-                            <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                          </TableRow>
-                        ))
-                      ) : filteredRequests.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={isAdmin ? 7 : 6} className="py-8 text-center text-muted-foreground">
-                            No matching requests. Try adjusting your filters.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filteredRequests.map((r) => {
-                          const res = resourcesById.get(r.resourceId);
-                          return (
-                            <TableRow key={r.id}>
-                              {isAdmin ? (
-                                <TableCell className="whitespace-nowrap">
-                                  <div className="flex flex-col">
-                                    <span className="text-sm text-accend-ink font-medium">{r.requesterName ?? '—'}</span>
-                                    <span className="text-xs text-accend-muted">{r.requesterEmail ?? ''}</span>
-                                  </div>
-                                </TableCell>
-                              ) : null}
-                              <TableCell className="whitespace-nowrap">{(() => { try { const j = JSON.parse(r.justification); if (j?.title) return j.title; } catch {} return renderResourceCell(r); })()}</TableCell>
-                              <TableCell>{renderStatusBadge(r.status)}</TableCell>
-                              <TableCell>{renderDateTime(r.createdAt)}</TableCell>
-                              <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
-                              <TableCell>{renderDateTime(r.expiresAt)}</TableCell>
-                              <TableCell className="whitespace-nowrap">{renderApprover(r)}</TableCell>
-                            </TableRow>
-                          );
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
+                <div className="space-y-1 pb-2 flex-shrink-0 min-w-[240px]">
+                  <label className="text-xs font-medium text-accend-muted">Keyword</label>
+                  <Input
+                    value={keyword}
+                    onChange={(e) => setKeyword(e.target.value)}
+                    className="h-8"
+                    placeholder="Search resource"
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          </section>
-        </main>
+
+                <div className="space-y-1 pb-2 flex-shrink-0 min-w-[340px]">
+                  <label className="text-xs font-medium text-accend-muted">Status</label>
+                  <div className="flex flex-wrap gap-2">
+                    {(['pending', 'approved', 'denied', 'expired'] as RequestEntry['status'][]).map((s) => (
+                      <Button
+                        key={s}
+                        type="button"
+                        size="sm"
+                        className="py-1"
+                        variant={selectedStatuses.has(s) ? 'default' : 'outline'}
+                        onClick={() => toggleStatus(s)}
+                      >
+                        {STATUS_LABEL[s]}
+                      </Button>
+                    ))}
+                    <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-accend-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      {isAdmin ? <TableHead>User</TableHead> : null}
+                      <TableHead>Resource</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Requested On</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead>Expires At</TableHead>
+                      <TableHead>Approver</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {queriesLoading ? (
+                      Array.from({ length: 5 }).map((_, idx) => (
+                        <TableRow key={idx}>
+                          {isAdmin ? <TableCell><Skeleton className="h-4 w-40" /></TableCell> : null}
+                          <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                        </TableRow>
+                      ))
+                    ) : filteredRequests.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={isAdmin ? 7 : 6} className="py-8 text-center text-muted-foreground">
+                          No matching requests. Try adjusting your filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredRequests.map((r) => {
+                        const res = resourcesById.get(r.resourceId);
+                        return (
+                          <TableRow key={r.id}>
+                            {isAdmin ? (
+                              <TableCell className="whitespace-nowrap">
+                                <div className="flex flex-col">
+                                  <span className="text-sm text-accend-ink font-medium">{r.requesterName ?? '—'}</span>
+                                  <span className="text-xs text-accend-muted">{r.requesterEmail ?? ''}</span>
+                                </div>
+                              </TableCell>
+                            ) : null}
+                            <TableCell className="whitespace-nowrap">{(() => { try { const j = JSON.parse(r.justification); if (j?.title) return j.title; } catch {} return renderResourceCell(r); })()}</TableCell>
+                            <TableCell>{renderStatusBadge(r.status)}</TableCell>
+                            <TableCell>{renderDateTime(r.createdAt)}</TableCell>
+                            <TableCell className="whitespace-nowrap">{r.durationHours ? `${r.durationHours}h` : '—'}</TableCell>
+                            <TableCell>{renderDateTime(r.expiresAt)}</TableCell>
+                            <TableCell className="whitespace-nowrap">{renderApprover(r)}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
       
       <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
         <DialogContent>

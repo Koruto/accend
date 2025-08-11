@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BackgroundBeams } from '@/components/ui/background-beams';
+import { friendlyMessageFromError } from '@/lib/errors';
 
 type Mode = 'login' | 'signup';
 const CATEGORIES = [
@@ -67,9 +68,8 @@ function LoginPageInner() {
         await signup({ name, email, password, role: role as 'developer' | 'qa' | 'admin' });
       }
       router.push(redirectTo);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Authentication failed';
-      setError(message);
+    } catch (err: any) {
+      setError(friendlyMessageFromError(err, mode === 'login' ? 'login' : 'signup'));
       setSubmitting(false);
     }
   }
