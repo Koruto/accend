@@ -113,7 +113,7 @@ export const resolvers = (cookieSecure: boolean) => ({
       const token = signUserSession(user);
       ctx.reply.setCookie(SESSION_COOKIE, token, {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: cookieSecure ? 'none' : 'lax',
         secure: cookieSecure,
         path: '/',
         maxAge: 60 * 60 * 24 * 7,
@@ -132,7 +132,7 @@ export const resolvers = (cookieSecure: boolean) => ({
       const token = signUserSession(user);
       ctx.reply.setCookie(SESSION_COOKIE, token, {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: cookieSecure ? 'none' : 'lax',
         secure: cookieSecure,
         path: '/',
         maxAge: 60 * 60 * 24 * 7,
