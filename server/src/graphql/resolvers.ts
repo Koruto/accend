@@ -140,7 +140,11 @@ export const resolvers = (cookieSecure: boolean) => ({
       return { user };
     },
     logout: async (_: unknown, __: unknown, ctx: { reply: FastifyReply }) => {
-      ctx.reply.clearCookie(SESSION_COOKIE, { path: '/' });
+      ctx.reply.clearCookie(SESSION_COOKIE, {
+        path: '/',
+        secure: cookieSecure,
+        sameSite: cookieSecure ? 'none' : 'lax',
+      });
       return true;
     },
     createRequest: async (_: unknown, args: { input: { resourceId: string; justification: string; durationHours?: number } }, ctx: any) => {
