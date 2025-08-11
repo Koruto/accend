@@ -16,4 +16,5 @@ export interface RequestRecord {
   approverId?: string | null;
   approverName?: string | null;
   decisionNote?: string | null;
+  bookingId?: string | null;
 } 

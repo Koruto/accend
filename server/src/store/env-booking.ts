@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { EnvironmentRecord } from '../models/environment';
 import type { BookingRecord } from '../models/booking';
+import { getCollection } from './mongo';
 
 export const environments: EnvironmentRecord[] = [
   { id: 'env_dev', name: 'Development', accessLevelRequired: 1 },
@@ -9,60 +10,58 @@ export const environments: EnvironmentRecord[] = [
   { id: 'env_uat', name: 'UAT', accessLevelRequired: 4 },
 ];
 
-export const bookingsByEnvId = new Map<string, BookingRecord[]>();
-
-export const bookingIdToRequestId = new Map<string, string>();
-
 function isActive(b: BookingRecord, now: Date): boolean {
   if (b.status !== 'approved' && b.status !== 'active') return false;
   if (!b.startedAt || !b.endsAt) return false;
   return new Date(b.startedAt) <= now && now < new Date(b.endsAt);
 }
 
-export function getActiveBookingForEnv(envId: string, now = new Date()): BookingRecord | null {
-  const list = bookingsByEnvId.get(envId) ?? [];
-  const active = list.find((b) => isActive(b, now));
-  return active ?? null;
+export async function getActiveBookingForEnv(envId: string, now = new Date()): Promise<BookingRecord | null> {
+  const col = getCollection<BookingRecord>('bookings');
+  const nowIso = now.toISOString();
+  const found = await col.findOne({ envId, startedAt: { $lte: nowIso }, endsAt: { $gt: nowIso }, status: { $in: ['approved', 'active'] } });
+  return found ?? null;
 }
 
-export function getLatestBookingForEnv(envId: string): BookingRecord | null {
-  const list = bookingsByEnvId.get(envId) ?? [];
-  return list.length > 0 ? list[0] : null;
+export async function getLatestBookingForEnv(envId: string): Promise<BookingRecord | null> {
+  const col = getCollection<BookingRecord>('bookings');
+  const found = await col.find({ envId }).sort({ createdAt: -1 }).limit(1).next();
+  return found ?? null;
 }
 
-export function getUserActiveBooking(userId: string, now = new Date()): BookingRecord | null {
-  for (const [, list] of bookingsByEnvId) {
-    const active = list.find((b) => b.userId === userId && isActive(b, now));
-    if (active) return active;
-  }
-  return null;
+export async function getUserActiveBooking(userId: string, now = new Date()): Promise<BookingRecord | null> {
+  const col = getCollection<BookingRecord>('bookings');
+  const nowIso = now.toISOString();
+  const found = await col.findOne({ userId, startedAt: { $lte: nowIso }, endsAt: { $gt: nowIso }, status: { $in: ['approved', 'active'] } });
+  return found ?? null;
 }
 
-export function nextFreeAt(envId: string, now = new Date()): Date | null {
-  const active = getActiveBookingForEnv(envId, now);
+export async function nextFreeAt(envId: string, now = new Date()): Promise<Date | null> {
+  const active = await getActiveBookingForEnv(envId, now);
   if (active && active.endsAt) {
     return new Date(active.endsAt);
   }
   return now;
 }
 
-export function createImmediateBooking(params: {
+export async function createImmediateBooking(params: {
   envId: string;
   userId: string;
   justification: string;
   durationMinutes: number;
-}): BookingRecord {
+}): Promise<BookingRecord> {
   const { envId, userId, justification, durationMinutes } = params;
   const env = environments.find((e) => e.id === envId);
   if (!env) throw new Error('ENV_NOT_FOUND');
 
   const now = new Date();
 
-  if (getUserActiveBooking(userId, now)) {
+  const existingMine = await getUserActiveBooking(userId, now);
+  if (existingMine) {
     throw new Error('USER_ALREADY_HAS_ACTIVE_BOOKING');
   }
 
-  const freeAt = nextFreeAt(envId, now);
+  const freeAt = await nextFreeAt(envId, now);
   if (!freeAt || freeAt > now) {
     const ts = freeAt?.toISOString() ?? '';
     const err: any = new Error('ENV_NOT_FREE');
@@ -86,26 +85,22 @@ export function createImmediateBooking(params: {
     extensionMinutesTotal: 0,
   };
 
-  const list = bookingsByEnvId.get(envId) ?? [];
-  list.unshift(record);
-  bookingsByEnvId.set(envId, list);
+  const col = getCollection<BookingRecord>('bookings');
+  await col.insertOne(record);
   return record;
 }
 
-function findBookingById(bookingId: string): { envId: string; list: BookingRecord[]; index: number; booking: BookingRecord } | null {
-  for (const [envId, list] of bookingsByEnvId) {
-    const index = list.findIndex((b) => b.id === bookingId);
-    if (index >= 0) return { envId, list, index, booking: list[index] };
-  }
-  return null;
+async function findBookingById(bookingId: string): Promise<BookingRecord | null> {
+  const col = getCollection<BookingRecord>('bookings');
+  const found = await col.findOne({ id: bookingId });
+  return found ?? null;
 }
 
-export function extendBookingForUser(params: { bookingId: string; userId: string; addMinutes: number; isAdmin: boolean }): BookingRecord {
+export async function extendBookingForUser(params: { bookingId: string; userId: string; addMinutes: number; isAdmin: boolean }): Promise<BookingRecord> {
   const { bookingId, userId, addMinutes, isAdmin } = params;
   if (addMinutes <= 0) throw new Error('INVALID_EXTENSION');
-  const found = findBookingById(bookingId);
-  if (!found) throw new Error('BOOKING_NOT_FOUND');
-  const { list, index, booking } = found;
+  const booking = await findBookingById(bookingId);
+  if (!booking) throw new Error('BOOKING_NOT_FOUND');
   if (!isAdmin && booking.userId !== userId) throw new Error('FORBIDDEN');
   if (!booking.startedAt || !booking.endsAt) throw new Error('NOT_ACTIVE');
   const now = new Date();
@@ -114,15 +109,15 @@ export function extendBookingForUser(params: { bookingId: string; userId: string
   if (total > 60) throw new Error('EXTENSION_LIMIT_EXCEEDED');
   const newEnds = new Date(new Date(booking.endsAt).getTime() + addMinutes * 60 * 1000).toISOString();
   const updated: BookingRecord = { ...booking, endsAt: newEnds, extensionMinutesTotal: total };
-  list[index] = updated;
+  const col = getCollection<BookingRecord>('bookings');
+  await col.updateOne({ id: bookingId }, { $set: { endsAt: newEnds, extensionMinutesTotal: total } });
   return updated;
 }
 
-export function releaseBookingForUser(params: { bookingId: string; userId: string; isAdmin: boolean }): BookingRecord {
+export async function releaseBookingForUser(params: { bookingId: string; userId: string; isAdmin: boolean }): Promise<BookingRecord> {
   const { bookingId, userId, isAdmin } = params;
-  const found = findBookingById(bookingId);
-  if (!found) throw new Error('BOOKING_NOT_FOUND');
-  const { list, index, booking } = found;
+  const booking = await findBookingById(bookingId);
+  if (!booking) throw new Error('BOOKING_NOT_FOUND');
   if (!isAdmin && booking.userId !== userId) throw new Error('FORBIDDEN');
   const nowIso = new Date().toISOString();
   const updated: BookingRecord = {
@@ -132,6 +127,7 @@ export function releaseBookingForUser(params: { bookingId: string; userId: strin
     closedReason: 'released',
     endsAt: nowIso,
   };
-  list[index] = updated;
+  const col = getCollection<BookingRecord>('bookings');
+  await col.updateOne({ id: bookingId }, { $set: { status: 'released', releasedAt: nowIso, closedReason: 'released', endsAt: nowIso } });
   return updated;
 } 

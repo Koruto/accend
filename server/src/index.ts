@@ -7,6 +7,7 @@ import mercurius from 'mercurius';
 import { verifySessionToken } from './auth/jwt';
 import { typeDefs } from './graphql/schema';
 import createResolvers from './graphql/resolvers';
+import { connectMongo, ensureIndexes } from './store/mongo';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -45,6 +46,17 @@ async function bootstrap() {
   const port = Number(process.env.PORT ?? 4000);
   const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:3000';
   const cookieSecure = (process.env.COOKIE_SECURE ?? 'false') === 'true';
+
+  const mongoUri = process.env.MONGO_URI ?? 'mongodb://127.0.0.1:27017';
+  const mongoDb = process.env.MONGO_DB ?? 'accend';
+  try {
+    await connectMongo(mongoUri, mongoDb);
+    await ensureIndexes();
+    app.log.info(`Connected to MongoDB db=${mongoDb}`);
+  } catch (err) {
+    app.log.error({ err }, 'Failed to connect to MongoDB');
+    throw err;
+  }
 
   await app.register(cors, {
     origin: corsOrigin,

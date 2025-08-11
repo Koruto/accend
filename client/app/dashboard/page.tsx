@@ -203,7 +203,11 @@ export default function DashboardPage() {
     return () => window.removeEventListener('accend:requests-updated', onRequestsUpdated);
   }, [refetchMyRequests]);
 
-  const simRuns = useMemo(() => listRuns(), [nowTick, requests]);
+  const mySimRuns = useMemo(() => {
+    const uid = user?.id;
+    if (!uid) return [] as ReturnType<typeof listRuns>;
+    return listRuns().filter((r) => r.userId === uid);
+  }, [nowTick, requests, user?.id]);
 
   const envDeploys = useMemo(() => {
     if (!activeBooking) return [] as ReturnType<typeof listDeploys>;
@@ -211,7 +215,6 @@ export default function DashboardPage() {
   }, [nowTick, activeBooking]);
   const latestDeploy = envDeploys.length > 0 ? envDeploys[0] : null;
   const latestDeployDerived = latestDeploy ? deriveDeploy(nowTick, latestDeploy) : null;
-  const deployBusy = latestDeployDerived ? (latestDeployDerived.status === 'queued' || latestDeployDerived.status === 'deploying') : false;
 
   const [redeployOpen, setRedeployOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -357,7 +360,6 @@ export default function DashboardPage() {
     return { rows: arr, total };
   }, [bookings, environments]);
 
-  // Selection for no-active banner CTA target
   const [bannerEnvId, setBannerEnvId] = useState<string | null>(null);
   const bestEnv = useMemo(() => {
     if (environments.length === 0) return null as EnvironmentEntry | null;
@@ -407,8 +409,22 @@ export default function DashboardPage() {
         bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + minutes;
       }
     } else {
+      // Aggregate my bookings
+      for (const b of bookings) {
+        if (!b.startedAt || !b.endsAt) continue;
+        const started = new Date(b.startedAt).getTime();
+        const ended = new Date(b.endsAt).getTime();
+        const minutes = Math.max(0, Math.floor((ended - started) / 60000));
+        const dayKey = new Date(b.startedAt).toISOString().slice(0, 10);
+        const bucket = buckets.find((x) => x.key === dayKey);
+        if (!bucket) continue;
+        const envKey = envIdToName.get(b.envId) ?? b.envId;
+        bucket.duration += minutes;
+        bucket.countsByEnv[envKey] = (bucket.countsByEnv[envKey] ?? 0) + 1;
+        bucket.minutesByEnv[envKey] = (bucket.minutesByEnv[envKey] ?? 0) + minutes;
+      }
       // Aggregate my simulated runs
-      for (const run of simRuns) {
+      for (const run of mySimRuns) {
         const d = deriveRun(nowTick, run);
         if (!d.startedAt || !d.finishedAt) continue;
         const dayKey = new Date(d.startedAt).toISOString().slice(0, 10);
@@ -427,7 +443,7 @@ export default function DashboardPage() {
       return row;
     });
     return { rows, envNames };
-  }, [isAdmin, bookings, simRuns, environments, nowTick]);
+  }, [isAdmin, bookings, mySimRuns, environments, nowTick]);
   
   function WeeklyTooltip({ active, label, payload }: any) {
     if (!active || !payload || payload.length === 0) return null;
@@ -612,7 +628,7 @@ export default function DashboardPage() {
                 // Build consolidated items
                 const items: any[] = [];
                 // Running test runs
-                for (const run of simRuns) {
+                for (const run of mySimRuns) {
                   const d = deriveRun(nowTick, run);
                   if (d.status !== 'running') continue;
                   const etaMs = (d.finishedAt ?? nowTick) - nowTick;
