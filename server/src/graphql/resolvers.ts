@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { signUserSession, SESSION_COOKIE } from '../auth/jwt';
 import { createUser, verifyUser, getUserPublicById, updateUserName } from '../auth/store';
 import { loginSchema, signupSchema } from '../auth/schemas';
-import { resources } from '../store/index';
+import { resources } from '../store/index.js';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { RequestRecord } from '../models/request';
-import { environments, getActiveBookingForEnv, nextFreeAt, createImmediateBooking, getUserActiveBooking, extendBookingForUser, releaseBookingForUser } from '../store/env-booking';
-import { getCollection } from '../store/mongo';
+import { environments, getActiveBookingForEnv, nextFreeAt, createImmediateBooking, getUserActiveBooking, extendBookingForUser, releaseBookingForUser } from '../store/env-booking.js';
+import { getCollection } from '../store/mongo.js';
 
 const createRequestSchema = z.object({
   resourceId: z.string().min(1),

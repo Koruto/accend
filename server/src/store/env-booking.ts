@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { EnvironmentRecord } from '../models/environment';
 import type { BookingRecord } from '../models/booking';
-import { getCollection } from './mongo';
+import { getCollection } from './mongo.js';
 
 export const environments: EnvironmentRecord[] = [
   { id: 'env_dev', name: 'Development', accessLevelRequired: 1 },

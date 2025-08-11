@@ -1,6 +1,6 @@
 import jwt, { JwtPayload } from 'jsonwebtoken';
-import type { PublicUser } from './types';
-import type { UserRole } from './types';
+import type { PublicUser } from './types.js';
+import type { UserRole } from './types.js';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev_secret_change_me';
 export const SESSION_COOKIE = 'accend_session';

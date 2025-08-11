@@ -4,10 +4,10 @@ import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import { randomUUID } from 'node:crypto';
 import mercurius from 'mercurius';
-import { verifySessionToken } from './auth/jwt';
-import { typeDefs } from './graphql/schema';
-import createResolvers from './graphql/resolvers';
-import { connectMongo, ensureIndexes } from './store/mongo';
+import { verifySessionToken } from './auth/jwt.js';
+import { typeDefs } from './graphql/schema.js';
+import createResolvers from './graphql/resolvers.js';
+import { connectMongo, ensureIndexes } from './store/mongo.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 

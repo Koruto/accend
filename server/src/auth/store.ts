@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
-import { getCollection } from '../store/mongo';
-import { PublicUser, UserRecord, UserRole } from './types';
+import { getCollection } from '../store/mongo.js';
+import { PublicUser, UserRecord, UserRole } from './types.js';
 
 function toPublic(record: UserRecord): PublicUser {
   const { id, name, email, role, accessLevel } = record;

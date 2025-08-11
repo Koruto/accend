@@ -1,4 +1,4 @@
-import type { ResourceType } from './resource';
+import type { ResourceType } from './resource.js';
 
 export type RequestStatus = 'pending' | 'approved' | 'denied' | 'expired';
 
