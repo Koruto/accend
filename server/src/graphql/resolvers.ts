@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { signUserSession, SESSION_COOKIE } from '../auth/jwt';
-import { createUser, verifyUser, getUserPublicById, updateUserName } from '../auth/store';
-import { loginSchema, signupSchema } from '../auth/schemas';
+import { signUserSession, SESSION_COOKIE } from '../auth/jwt.js';
+import { createUser, verifyUser, getUserPublicById, updateUserName } from '../auth/store.js';
+import { loginSchema, signupSchema } from '../auth/schemas.js';
 import { resources } from '../store/index.js';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import type { RequestRecord } from '../models/request';
+import type { RequestRecord } from '../models/request.js';
 import { environments, getActiveBookingForEnv, nextFreeAt, createImmediateBooking, getUserActiveBooking, extendBookingForUser, releaseBookingForUser } from '../store/env-booking.js';
 import { getCollection } from '../store/mongo.js';
 
