@@ -68,7 +68,7 @@ async function bootstrap() {
   await app.register(cookie, {
     parseOptions: {
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: 'none',
       secure: cookieSecure,
       path: '/',
     },
