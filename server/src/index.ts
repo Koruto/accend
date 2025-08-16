@@ -61,7 +61,7 @@ async function bootstrap() {
   }
 
   await app.register(cors, {
-    origin: corsOrigin,
+    origin: true,
     credentials: true,
   });
 
